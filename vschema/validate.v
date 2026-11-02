@@ -11,7 +11,7 @@ import regex
 // VError is one validation violation, structured so callers can render or
 // filter it without string parsing.
 pub struct VError {
-pub:
+pub mut:
 	instance_path string
 	schema_path   string
 	message       string
@@ -56,7 +56,9 @@ pub fn (s Schema) is_valid(input json2.Any) bool {
 }
 
 // validate_node walks the implemented keywords in a fixed order, collecting
-// all violations instead of short-circuiting on the first.
+// all violations instead of short-circuiting on the first. Object-specific
+// and array-specific keywords only apply to instances of their kind, but a
+// type mismatch is still reported alongside any other violated keyword.
 fn (s SchemaNode) validate_node(input json2.Any) []VError {
 	mut errs := []VError{}
 	if typ := s.typ {
@@ -177,7 +179,187 @@ fn (s SchemaNode) validate_node(input json2.Any) []VError {
 			}
 		}
 	}
+	if input is map[string]json2.Any {
+		obj := input as map[string]json2.Any
+		errs << s.object_violations(obj)
+	}
+	if input is []json2.Any {
+		arr := input as []json2.Any
+		errs << s.array_violations(arr)
+	}
 	return errs
+}
+
+// object_violations applies the object keywords in fixed order: required,
+// propertyNames (the keys validate as strings), properties (each present
+// property validates against its subschema), then the property-count bounds.
+// Keys are visited in sorted order so map iteration never leaks into output.
+fn (s SchemaNode) object_violations(obj map[string]json2.Any) []VError {
+	mut errs := []VError{}
+	if req := s.required {
+		for key in req {
+			if key !in obj {
+				errs << VError{
+					schema_path: '/required'
+					message:     'required property "${key}" is missing'
+				}
+			}
+		}
+	}
+	if names_ptr := s.property_names {
+		ns := *names_ptr
+		mut keys := obj.keys()
+		keys.sort()
+		for key in keys {
+			for e in ns.validate(json2.Any(key)) {
+				mut ne := e
+				ne.instance_path = pointer_token(key)
+				ne.schema_path = '/propertyNames${e.schema_path}'
+				errs << ne
+			}
+		}
+	}
+	if props := s.properties {
+		mut prop_keys := props.keys()
+		prop_keys.sort()
+		for pk in prop_keys {
+			ps_ptr := props[pk] or { continue }
+			ps := *ps_ptr
+			pv := obj[pk] or { continue }
+			for e in ps.validate(pv) {
+				mut pe := e
+				pe.instance_path = pointer_token(pk) + e.instance_path
+				pe.schema_path = '/properties${pointer_token(pk)}${e.schema_path}'
+				errs << pe
+			}
+		}
+	}
+	if min_p := s.min_properties {
+		if obj.len < int(min_p) {
+			errs << VError{
+				schema_path: '/minProperties'
+				message:     'object has fewer than ${min_p} properties'
+			}
+		}
+	}
+	if max_p := s.max_properties {
+		if obj.len > int(max_p) {
+			errs << VError{
+				schema_path: '/maxProperties'
+				message:     'object has more than ${max_p} properties'
+			}
+		}
+	}
+	return errs
+}
+
+// array_violations applies the array keywords in fixed order: items (every
+// item validates as a prefix-free subschema), item-count bounds, uniqueness
+// under deep equality, and contains with its optional match-count bounds.
+fn (s SchemaNode) array_violations(arr []json2.Any) []VError {
+	mut errs := []VError{}
+	if items_ptr := s.items {
+		is_s := *items_ptr
+		for i, item in arr {
+			for e in is_s.validate(item) {
+				mut ie := e
+				ie.instance_path = pointer_token(i.str()) + e.instance_path
+				// the same subschema speaks for every index, so the pointer
+				// stays at /items (properties, by contrast, selects per name)
+				ie.schema_path = '/items${e.schema_path}'
+				errs << ie
+			}
+		}
+	}
+	if min_i := s.min_items {
+		if arr.len < int(min_i) {
+			errs << VError{
+				schema_path: '/minItems'
+				message:     'array has fewer than ${min_i} items'
+			}
+		}
+	}
+	if max_i := s.max_items {
+		if arr.len > int(max_i) {
+			errs << VError{
+				schema_path: '/maxItems'
+				message:     'array has more than ${max_i} items'
+			}
+		}
+	}
+	if uniq := s.unique_items {
+		if uniq && array_not_unique(arr) {
+			errs << VError{
+				schema_path: '/uniqueItems'
+				message:     'array items are not unique'
+			}
+		}
+	}
+	if contains_ptr := s.contains {
+		cs := *contains_ptr
+		errs << s.contains_violations(arr, cs)
+	}
+	return errs
+}
+
+// contains_violations answers the contains question: how many items match.
+// The match floor is max(1, minContains), and maxContains bounds the count
+// above. When fewer matches than the floor, the row points at /minContains
+// whenever minContains raised the floor, or at /contains on the plain form.
+fn (s SchemaNode) contains_violations(arr []json2.Any, contains_schema Schema) []VError {
+	mut matches := 0
+	for item in arr {
+		if contains_schema.validate(item).len == 0 {
+			matches++
+		}
+	}
+	// minContains lowers the required count when explicitly given (a value of
+	// 0 makes even zero matches valid); absent means the floor of 1.
+	mut floor := 1
+	if mc := s.min_contains {
+		floor = int(mc)
+	}
+	if matches < floor {
+		if mc := s.min_contains {
+			return [VError{
+				schema_path: '/minContains'
+				message:     'only ${matches} array item(s) match the contains schema, fewer than ${mc}'
+			}]
+		}
+		return [VError{
+			schema_path: '/contains'
+			message:     'no array item matches the contains schema'
+		}]
+	}
+	if xmax := s.max_contains {
+		if matches > int(xmax) {
+			return [VError{
+				schema_path: '/maxContains'
+				message:     'more array item(s) match the contains schema (${matches}) than the maximum of ${xmax}'
+			}]
+		}
+	}
+	return []
+}
+
+// pointer_token renders one JSON Pointer reference token: the "~" and "/"
+// characters of a property name or item index are escape sequences per the
+// pointer spec (`~0`, `~1`), and the token is returned with its leading slash.
+fn pointer_token(name string) string {
+	return '/' + name.replace('~', '~0').replace('/', '~1')
+}
+
+// array_not_unique reports whether any pair of items compares equal under
+// the kind-first deep equality used throughout validation.
+fn array_not_unique(arr []json2.Any) bool {
+	for i := 0; i < arr.len; i++ {
+		for j := i + 1; j < arr.len; j++ {
+			if deep_equal(arr[i], arr[j]) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // is_multiple_of checks `n % d == 0` through the float path: the quotient is

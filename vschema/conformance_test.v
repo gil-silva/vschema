@@ -7,9 +7,9 @@
 // passes. When the clone exists, every group of the covered files is applied:
 // the group schema is parsed and each of its tests' data is validated, and
 // the expected `valid` flag must match. Groups whose schema uses keywords not
-// yet implemented (as of this milestone: everything but type / const / enum /
-// numeric bounds / multipleOf / string lengths / pattern) or whose pattern
-// the V regex engine cannot compile are skipped and counted in the summary.
+// yet implemented (as of this milestone: everything but the type/const/enum,
+// numeric, string and object/array structure keywords) or whose pattern the
+// V regex engine cannot compile are skipped and counted in the summary.
 module vschema
 
 import json2
@@ -30,7 +30,19 @@ const conformance_files = [
 	'exclusiveMinimum.json'
 	'maxLength.json'
 	'minLength.json'
-	'pattern.json',
+	'pattern.json'
+	'properties.json'
+	'required.json'
+	'propertyNames.json'
+	'items.json'
+	'minProperties.json'
+	'maxProperties.json'
+	'minItems.json'
+	'maxItems.json'
+	'uniqueItems.json'
+	'contains.json'
+	'minContains.json'
+	'maxContains.json',
 ]
 
 // unimplemented_keywords are the schema-semantic keywords outside this
@@ -48,28 +60,22 @@ const unimplemented_keywords = [
 	'additionalProperties'
 	'allOf'
 	'anyOf'
-	'contains'
 	'dependentRequired'
 	'dependentSchemas'
 	'if'
-	'items'
-	'maxContains'
-	'maxItems'
-	'maxProperties'
-	'minContains'
-	'minItems'
-	'minProperties'
 	'not'
 	'oneOf'
 	'prefixItems'
-	'properties'
-	'propertyNames'
-	'required'
 	'then'
-	'uniqueItems'
-	'unevaluatedProperties'
-	'else',
+	'else'
+	'unevaluatedItems'
+	'unevaluatedProperties',
 ]
+
+// data_keywords carry plain data, not schemas: their values must never be
+// walked for keywords, and their nested maps are instance values (an enum
+// with object entries is data, not subschema vocabulary).
+const data_keywords = ['const', 'enum', 'examples', 'default']
 
 // suite_root is the dev-only clone location, relative to the repo root
 // (the nearest v.mod above this module directory).
@@ -77,9 +83,9 @@ fn suite_root() string {
 	return os.join_path(@VMODROOT, 'testsuite')
 }
 
-// test_conformance_m1_groups runs the whole covered corpus; a single test
+// test_conformance_groups runs the whole covered corpus; a single test
 // failure is printed with its described case before the boolean assertion.
-fn test_conformance_m1_groups() {
+fn test_conformance_groups() {
 	base := os.join_path(suite_root(), 'tests', 'draft2020-12')
 	if !os.exists(base) {
 		eprintln('conformance_test: testsuite/ absent (dev-only clone of json-schema-org/JSON-Schema-Test-Suite) — nothing to check')
@@ -136,25 +142,50 @@ fn test_conformance_m1_groups() {
 	assert failed == 0
 }
 
-// group_skip_reason reports why a group cannot be answered correctly yet: an
-// unimplemented keyword at the schema's top level (subschema-carrying
-// keywords cannot hide an unimplemented constraint in this milestone), or a
-// pattern that fails to compile under the V regex engine.
+// group_skip_reason reports why a group cannot be answered correctly yet:
+// any unimplemented keyword anywhere in the group's schema tree (data
+// positions such as enum/const are not walked), or any pattern at any depth
+// that fails to compile under the V regex engine.
 fn group_skip_reason(g map[string]json2.Any) ?string {
 	raw_schema := g['schema'] or { return none }
 	if !(raw_schema is map[string]json2.Any) {
 		return none
 	}
-	sm := raw_schema as map[string]json2.Any
-	for k, _ in sm {
+	return schema_skip_reason(raw_schema as map[string]json2.Any)
+}
+
+// schema_skip_reason walks a schema tree keyword by keyword; subschema
+// positions are recursed so a constraint cannot hide under implemented
+// structure (a pattern under properties, an anyOf nested inside items...).
+fn schema_skip_reason(sm map[string]json2.Any) ?string {
+	for k, v in sm {
 		if k in unimplemented_keywords {
 			return 'uses unimplemented keyword ${k}'
 		}
-	}
-	if raw := sm['pattern'] {
-		if raw is string {
-			_ = regex.regex_opt(raw as string) or {
-				return 'pattern does not compile under the V regex engine'
+		if k == 'pattern' {
+			if v is string {
+				_ = regex.regex_opt(v as string) or {
+					return 'pattern does not compile under the V regex engine'
+				}
+			}
+		}
+		if k in data_keywords {
+			continue
+		}
+		if v is map[string]json2.Any {
+			m := v as map[string]json2.Any
+			if r := schema_skip_reason(m) {
+				return r
+			}
+		}
+		if v is []json2.Any {
+			for item in v as []json2.Any {
+				if item is map[string]json2.Any {
+					im := item as map[string]json2.Any
+					if r := schema_skip_reason(im) {
+						return r
+					}
+				}
 			}
 		}
 	}

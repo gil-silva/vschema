@@ -17,17 +17,29 @@ pub type Schema = bool | SchemaNode
 // integers (a decimal like `2.0` is accepted as the integer `2`).
 pub struct SchemaNode {
 pub mut:
-	typ           ?[]string
-	const_value   ?json2.Any
-	enum_value    ?[]json2.Any
-	maximum       ?f64
-	minimum       ?f64
-	exclusive_max ?f64
-	exclusive_min ?f64
-	multiple_of   ?f64
-	min_length    ?i64
-	max_length    ?i64
-	pattern       ?string
+	typ            ?[]string
+	const_value    ?json2.Any
+	enum_value     ?[]json2.Any
+	maximum        ?f64
+	minimum        ?f64
+	exclusive_max  ?f64
+	exclusive_min  ?f64
+	multiple_of    ?f64
+	min_length     ?i64
+	max_length     ?i64
+	pattern        ?string
+	properties     ?map[string]&Schema
+	required       ?[]string
+	property_names ?&Schema
+	items          ?&Schema
+	min_properties ?i64
+	max_properties ?i64
+	min_items      ?i64
+	max_items      ?i64
+	unique_items   ?bool
+	contains       ?&Schema
+	min_contains   ?i64
+	max_contains   ?i64
 }
 
 // is_num reports whether the Any carries a JSON number variant.
@@ -112,6 +124,45 @@ pub fn parse_schema(a json2.Any) !Schema {
 			}
 			'pattern' {
 				node.pattern = parse_pattern(v) or { return err }
+			}
+			'properties' {
+				node.properties = parse_properties(v) or { return err }
+			}
+			'required' {
+				node.required = parse_required(v) or { return err }
+			}
+			'propertyNames' {
+				pn := parse_schema_value(v, k) or { return err }
+				node.property_names = &pn
+			}
+			'items' {
+				it_s := parse_schema_value(v, k) or { return err }
+				node.items = &it_s
+			}
+			'minProperties' {
+				node.min_properties = parse_length(v, k) or { return err }
+			}
+			'maxProperties' {
+				node.max_properties = parse_length(v, k) or { return err }
+			}
+			'minItems' {
+				node.min_items = parse_length(v, k) or { return err }
+			}
+			'maxItems' {
+				node.max_items = parse_length(v, k) or { return err }
+			}
+			'uniqueItems' {
+				node.unique_items = parse_bool_keyword(v, k) or { return err }
+			}
+			'contains' {
+				co := parse_schema_value(v, k) or { return err }
+				node.contains = &co
+			}
+			'minContains' {
+				node.min_contains = parse_length(v, k) or { return err }
+			}
+			'maxContains' {
+				node.max_contains = parse_length(v, k) or { return err }
 			}
 			else {
 				// annotations and keywords not implemented on this release
@@ -205,4 +256,56 @@ fn parse_pattern(v json2.Any) !string {
 		return v
 	}
 	return error('pattern: must be a string')
+}
+
+// parse_schema_value converts a schema-carrying keyword value (`items`,
+// `contains`, `propertyNames`): a boolean schema or a nested object schema
+// (which is parsed recursively, so its own errors surface at parse time).
+fn parse_schema_value(v json2.Any, name string) !Schema {
+	if v is bool {
+		return Schema(v)
+	}
+	if is_map_schema(v) {
+		return parse_schema(v)
+	}
+	return error('${name}: must be a boolean or an object schema')
+}
+
+// parse_properties converts the `properties` keyword: an object mapping
+// property names to schemas, each parsed recursively. Subschemas are held by
+// reference so the node tree may nest arbitrarily without value cycles.
+fn parse_properties(v json2.Any) !map[string]&Schema {
+	if !is_map_schema(v) {
+		return error('properties: must be an object')
+	}
+	mut out := map[string]&Schema{}
+	for pk, pv in v as map[string]json2.Any {
+		ps := parse_schema(pv) or { return err }
+		out[pk] = &ps
+	}
+	return out
+}
+
+// parse_required converts the `required` keyword: an array of property names.
+fn parse_required(v json2.Any) ![]string {
+	if !(v is []json2.Any) {
+		return error('required: must be an array of strings')
+	}
+	mut names := []string{}
+	for item in v as []json2.Any {
+		if item is string {
+			names << item
+		} else {
+			return error('required: must be an array of strings')
+		}
+	}
+	return names
+}
+
+// parse_bool_keyword converts a boolean-valued keyword such as `uniqueItems`.
+fn parse_bool_keyword(v json2.Any, name string) !bool {
+	if v is bool {
+		return v
+	}
+	return error('${name}: must be a boolean')
 }

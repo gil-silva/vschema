@@ -257,6 +257,129 @@ fn test_string_lengths_count_codepoints() {
 	assert !dec.is_valid(val('"f"'))
 }
 
+fn test_properties_and_required() {
+	s := schema('{"type": "object", "properties": {"name": {"type": "string"}, "n": {"type": "integer"}}, "required": ["name"]}')
+	assert s.is_valid(val('{"name": "gil", "n": 42}'))
+	// an empty object misses the required "name" — but n was never there
+	assert !s.is_valid(val('{}'))
+	assert !s.is_valid(val('{"name": 5}'))
+}
+
+fn test_required_reports_missing_keys() {
+	s := schema('{"required": ["a", "b"]}')
+	// both misses are collected in one pass, in required order
+	errors := s.validate(val('{"b": 1}'))
+	assert errors.len == 1
+	assert errors[0].instance_path == ''
+	assert errors[0].schema_path == '/required'
+	assert err_texts(errors) == 'required property "a" is missing'
+}
+
+fn test_property_error_paths() {
+	s := schema('{"properties": {"user": {"properties": {"name": {"type": "string"}}}}}')
+	errors := s.validate(val('{"user": {"name": 5}}'))
+	assert errors.len == 1
+	assert errors[0].instance_path == '/user/name'
+	assert errors[0].schema_path == '/properties/user/properties/name/type'
+}
+
+fn test_pointer_escaping_in_paths() {
+	s := schema('{"properties": {"a~b/c": {"minimum": 10}}}')
+	errors := s.validate(val('{"a~b/c": 1}'))
+	assert errors.len == 1
+	assert errors[0].instance_path == '/a~0b~1c'
+	assert errors[0].schema_path == '/properties/a~0b~1c/minimum'
+}
+
+fn test_property_names() {
+	s := schema('{"propertyNames": {"pattern": "^[a-z]+$"}}')
+	assert s.is_valid(val('{}'))
+	assert !s.is_valid(val('{"VALID": 1}'))
+	errors := s.validate(val('{"VALID": 1}'))
+	assert errors.len == 1
+	assert errors[0].instance_path == '/VALID'
+	assert errors[0].schema_path == '/propertyNames/pattern'
+}
+
+fn test_property_count_bounds() {
+	lo := schema('{"minProperties": 2}')
+	assert lo.is_valid(val('{"a": 1, "b": 2}'))
+	assert !lo.is_valid(val('{"a": 1}'))
+	hi := schema('{"maxProperties": 1}')
+	assert !hi.is_valid(val('{"a": 1, "b": 2}'))
+	// counts only apply to objects; a string instance is unaffected
+	assert schema('{"minProperties": 2}').is_valid(val('"two"'))
+}
+
+fn test_items() {
+	s := schema('{"items": {"type": "integer", "minimum": 0}}')
+	assert s.is_valid(val('[1, 2, 3]'))
+	assert !s.is_valid(val('[1, -2, 3]'))
+	errors := s.validate(val('[1, -2, 3]'))
+	assert errors.len == 1
+	assert errors[0].instance_path == '/1'
+	assert errors[0].schema_path == '/items/minimum'
+}
+
+fn test_item_count_bounds() {
+	lo := schema('{"minItems": 2}')
+	assert lo.is_valid(val('[1, 2]'))
+	assert !lo.is_valid(val('[1]'))
+	hi := schema('{"maxItems": 2}')
+	assert hi.is_valid(val('[1, 2]'))
+	assert !hi.is_valid(val('[1, 2, 3]'))
+}
+
+fn test_unique_items() {
+	s := schema('{"uniqueItems": true}')
+	assert s.is_valid(val('[1, 2, 3]'))
+	// deep, kind-first equality: -2 == -2.0, false != 0
+	assert !s.is_valid(val('[1, -2, -2.0]'))
+	assert s.is_valid(val('[false, 0]'))
+	assert !s.is_valid(val('[{"a": 1, "b": 2}, {"b": 2, "a": 1}]'))
+	assert s.is_valid(val('"abc"'))
+}
+
+fn test_contains() {
+	c := schema('{"contains": {"const": 2}}')
+	assert c.is_valid(val('[1, 2, 3]'))
+	assert !c.is_valid(val('[1, 3]'))
+	assert !c.is_valid(val('[]'))
+	// contains: false rejects everything; true accepts any array
+	assert !schema('{"contains": false}').is_valid(val('[1]'))
+	assert schema('{"contains": true}').is_valid(val('[1]'))
+}
+
+fn test_contains_bounds() {
+	mc := schema('{"contains": {"const": 2}, "maxContains": 1}')
+	assert mc.is_valid(val('[2, 3]'))
+	assert !mc.is_valid(val('[2, 2]'))
+	// minContains: 0 makes zero matches valid, even on the empty array
+	m0 := schema('{"contains": {"const": 2}, "minContains": 0}')
+	assert m0.is_valid(val('[]'))
+	assert m0.is_valid(val('[1, 3]'))
+	// a raised minimum is reported at its own path
+	m3 := schema('{"contains": {"const": 2}, "minContains": 3}')
+	errors := m3.validate(val('[2, 3]'))
+	assert errors.len == 1
+	assert errors[0].schema_path == '/minContains'
+}
+
+fn test_parse_rejects_malformed_structure() {
+	assert rejects('{"required": "a"}')
+	assert rejects('{"required": [1]}')
+	assert rejects('{"properties": []}')
+	assert rejects('{"uniqueItems": "yes"}')
+	assert rejects('{"items": 5}')
+	assert rejects('{"minProperties": -1}')
+	assert rejects('{"maxItems": 2.5}')
+	assert rejects('{"contains": 42}')
+	// bad subschema keywords are loud, wherever they sit
+	assert rejects('{"properties": {"a": {"multipleOf": 0}}}')
+	// unknown keywords inside subschemas stay annotations
+	assert !rejects('{"properties": {"a": {"description": "x"}}}')
+}
+
 fn test_pattern_semantics() {
 	anchored := schema('{"pattern": "^a*$"}')
 	assert anchored.is_valid(val('"aaa"'))

@@ -153,16 +153,23 @@ draft and are simply skipped — forward-compatibility, not an error.
 | `multipleOf`  | checked through `f64` with a bounded epsilon; overflows report honestly |
 | `minLength` `maxLength` | Unicode code points (🇻 is one character, not four bytes)            |
 | `pattern`     | substring semantics (`a+` matches inside `xxaayy`) via the stdlib `regex`     |
+| `properties` `required` | per-property subschemas, with their own error paths below them |
+| `items`       | one subschema for every element (the 2020-12 form); rows land at `/1`, `/2`…  |
+| `propertyNames` | object keys validate as if they were the document                            |
+| `min/maxProperties` · `min/maxItems` | structure-count bounds, integers and decimals alike      |
+| `uniqueItems` | duplicates decided by the same deep, kind-first equality                      |
+| `contains` `min/maxContains` | matching-item counts; `minContains: 0` allows zero matches      |
 
 <details>
-<summary><b>Two conformance groups are deliberately skipped</b></summary>
+<summary><b>Which groups are skipped, and why</b></summary>
 
-- `enum.json`'s nested-subschema group uses `properties`/`required` (milestone
-  2) — skipped and counted, never faked.
 - `pattern.json`'s group uses `\p{Letter}`, a Unicode property escape the V
   regex engine does not compile. Such patterns reach validation and surface as
   an explicit `/pattern` violation ("pattern is not supported by the V regex
   engine") instead of silently passing.
+- Twelve groups lean on keywords outside this milestone — `prefixItems`
+  (in `items`/`uniqueItems` groups), `additionalProperties`, `allOf`, `$defs`
+  and `if`. Every skip names its own reason at run time; nothing is faked.
 
 </details>
 
@@ -173,8 +180,8 @@ Checked against the official
 (draft 2020-12 group files):
 
 ```
-conformance: 260 passed, 0 failed, 2 groups skipped
-skipped [enum.json group 3]: uses unimplemented keyword properties
+conformance: 470 passed, 0 failed, 12 groups skipped
+skipped [items.json group 5]: uses unimplemented keyword prefixItems
 skipped [pattern.json group 2]: pattern does not compile under the V regex engine
 ```
 
@@ -267,8 +274,8 @@ Until it lands, the clone path above is the install.
 
 ## Roadmap
 
-- **M2 — structure**: `properties` · `items` · `required` · `propertyNames` ·
-  bounds (`min/maxProperties`, `min/maxItems`, `uniqueItems`, `contains`)
+- **M2 — structure**: shipped — `properties`, `items`, `required`, `propertyNames`,
+  counts, `uniqueItems`, `contains` (conformance 470/0/12 as of this release)
 - **M3 — composition**: `allOf` · `anyOf` · `oneOf` · `not`
 - **M4 — references**: `$ref` · `$defs` · `$id`
 - **M5 — the differentiator**: comptime struct→schema derivation, so MCP
