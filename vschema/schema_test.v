@@ -246,11 +246,11 @@ fn test_string_lengths_count_codepoints() {
 	assert bound.is_valid(val('1')) // non-strings ignore lengths
 	// one code point counts as one character, whatever its byte width
 	emoji := schema('{"minLength": 1}')
-	assert emoji.is_valid(val('"💩"'))
+	assert emoji.is_valid(val('"🇻"'))
 	short := schema('{"minLength": 2}')
-	assert !short.is_valid(val('"💩"'))
+	assert !short.is_valid(val('"🇻"'))
 	maxlen := schema('{"maxLength": 2}')
-	assert maxlen.is_valid(val('"💩💩"'))
+	assert maxlen.is_valid(val('"🇻🇻"'))
 	assert !maxlen.is_valid(val('"foo"'))
 	dec := schema('{"minLength": 2.0}')
 	assert dec.is_valid(val('"foo"'))
