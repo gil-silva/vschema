@@ -25,9 +25,26 @@ pub mut:
 // to spare.
 const multiple_of_rel_eps = 1e-12
 
+// max_ref_hops bounds $ref delegation chains. Ordinary documents terminate
+// at their own data depth long before the cap; the guard exists for
+// no-progress self-reference cycles ("$ref": "#" delegating to the very
+// schema that delegates) which consume no data depth and would otherwise
+// dispatch forever. A chain that outlasts the budget yields /$ref rows
+// instead of a hang. The number is also the maximum $ref-recursion stack
+// depth (three frames per hop), so it stays modest.
+const max_ref_hops = 128
+
 // validate applies the schema to an instance and returns every violation;
 // an empty slice means the instance is valid.
 pub fn (s Schema) validate(input json2.Any) []VError {
+	return s.validate_bounded(input, max_ref_hops)
+}
+
+// validate_bounded applies the schema with `hops` reference delegations
+// still budgeted; every $ref step consumes one from its own share, so a
+// data-driven recursion (each nesting level = one hop) runs as deep as the
+// instance while a no-progress cycle stops at the guard.
+fn (s Schema) validate_bounded(input json2.Any, hops int) []VError {
 	if s is bool {
 		if !s {
 			return [VError{
@@ -38,7 +55,7 @@ pub fn (s Schema) validate(input json2.Any) []VError {
 		return []
 	}
 	// the only remaining variant after the boolean check above
-	return (s as SchemaNode).validate_node(input)
+	return (s as SchemaNode).validate_node(input, hops)
 }
 
 // validate_json validates raw JSON text, reporting malformed JSON as a result
@@ -59,7 +76,7 @@ pub fn (s Schema) is_valid(input json2.Any) bool {
 // all violations instead of short-circuiting on the first. Object-specific
 // and array-specific keywords only apply to instances of their kind, but a
 // type mismatch is still reported alongside any other violated keyword.
-fn (s SchemaNode) validate_node(input json2.Any) []VError {
+fn (s SchemaNode) validate_node(input json2.Any, hops int) []VError {
 	mut errs := []VError{}
 	if typ := s.typ {
 		mut matched := false
@@ -181,13 +198,14 @@ fn (s SchemaNode) validate_node(input json2.Any) []VError {
 	}
 	if input is map[string]json2.Any {
 		obj := input as map[string]json2.Any
-		errs << s.object_violations(obj)
+		errs << s.object_violations(obj, hops)
 	}
 	if input is []json2.Any {
 		arr := input as []json2.Any
-		errs << s.array_violations(arr)
+		errs << s.array_violations(arr, hops)
 	}
-	errs << s.composition_violations(input)
+	errs << s.composition_violations(input, hops)
+	errs << s.ref_violations(input, hops)
 	return errs
 }
 
@@ -196,12 +214,12 @@ fn (s SchemaNode) validate_node(input json2.Any) []VError {
 // (every branch is mandatory); the disjunctive keywords report a single row
 // on the keyword itself — which branch failed is branch ordering, not a
 // per-document path, so a keyword-level row keeps output deterministic.
-fn (s SchemaNode) composition_violations(input json2.Any) []VError {
+fn (s SchemaNode) composition_violations(input json2.Any, hops int) []VError {
 	mut errs := []VError{}
 	if branches := s.all_of {
 		for bi, bptr in branches {
 			bd := *bptr
-			for e in bd.validate(input) {
+			for e in bd.validate_bounded(input, hops) {
 				mut be := e
 				be.schema_path = '/allOf${pointer_token(bi.str())}${e.schema_path}'
 				errs << be
@@ -212,7 +230,7 @@ fn (s SchemaNode) composition_violations(input json2.Any) []VError {
 		mut found := false
 		for bptr in branches {
 			bd := *bptr
-			if bd.validate(input).len == 0 {
+			if bd.validate_bounded(input, hops).len == 0 {
 				found = true
 			}
 		}
@@ -227,7 +245,7 @@ fn (s SchemaNode) composition_violations(input json2.Any) []VError {
 		mut matches := 0
 		for bptr in branches {
 			bd := *bptr
-			if bd.validate(input).len == 0 {
+			if bd.validate_bounded(input, hops).len == 0 {
 				matches++
 			}
 		}
@@ -245,7 +263,7 @@ fn (s SchemaNode) composition_violations(input json2.Any) []VError {
 	}
 	if not_ptr := s.not {
 		nd := *not_ptr
-		if nd.validate(input).len == 0 {
+		if nd.validate_bounded(input, hops).len == 0 {
 			errs << VError{
 				schema_path: '/not'
 				message:     'value must not match the not subschema'
@@ -255,11 +273,37 @@ fn (s SchemaNode) composition_violations(input json2.Any) []VError {
 	return errs
 }
 
+// ref_violations delegates the $ref keyword to its bound target. In draft
+// 2020-12 a reference is not exclusive, so the target's rows join whatever
+// sibling keywords produced; rows re-point into the document: the fragment
+// (minus "#") prefixes the target's schema paths — "#/$defs/int" reports
+// "/$defs/int/type", and "#" (the root) leaves target paths unchanged. The
+// delegation spends one hop of the recursion budget; a chain that spends
+// more than the cap stops with a single /$ref guard row.
+fn (s SchemaNode) ref_violations(input json2.Any, hops int) []VError {
+	raw := s.raw_ref or { return []VError{} }
+	bind := s.ref_binding or { return []VError{} }
+	if hops <= 0 {
+		return [VError{
+			schema_path: '/$ref'
+			message:     'reference delegation exceeded the ${max_ref_hops}-hop recursion guard'
+		}]
+	}
+	target := bind.target or { return []VError{} }
+	mut errs := []VError{}
+	for e in target.validate_bounded(input, hops - 1) {
+		mut re := e
+		re.schema_path = raw[1..] + e.schema_path
+		errs << re
+	}
+	return errs
+}
+
 // object_violations applies the object keywords in fixed order: required,
 // propertyNames (the keys validate as strings), properties (each present
 // property validates against its subschema), then the property-count bounds.
 // Keys are visited in sorted order so map iteration never leaks into output.
-fn (s SchemaNode) object_violations(obj map[string]json2.Any) []VError {
+fn (s SchemaNode) object_violations(obj map[string]json2.Any, hops int) []VError {
 	mut errs := []VError{}
 	if req := s.required {
 		for key in req {
@@ -276,7 +320,7 @@ fn (s SchemaNode) object_violations(obj map[string]json2.Any) []VError {
 		mut keys := obj.keys()
 		keys.sort()
 		for key in keys {
-			for e in ns.validate(json2.Any(key)) {
+			for e in ns.validate_bounded(json2.Any(key), hops) {
 				mut ne := e
 				ne.instance_path = pointer_token(key)
 				ne.schema_path = '/propertyNames${e.schema_path}'
@@ -291,7 +335,7 @@ fn (s SchemaNode) object_violations(obj map[string]json2.Any) []VError {
 			ps_ptr := props[pk] or { continue }
 			ps := *ps_ptr
 			pv := obj[pk] or { continue }
-			for e in ps.validate(pv) {
+			for e in ps.validate_bounded(pv, hops) {
 				mut pe := e
 				pe.instance_path = pointer_token(pk) + e.instance_path
 				pe.schema_path = '/properties${pointer_token(pk)}${e.schema_path}'
@@ -321,12 +365,12 @@ fn (s SchemaNode) object_violations(obj map[string]json2.Any) []VError {
 // array_violations applies the array keywords in fixed order: items (every
 // item validates as a prefix-free subschema), item-count bounds, uniqueness
 // under deep equality, and contains with its optional match-count bounds.
-fn (s SchemaNode) array_violations(arr []json2.Any) []VError {
+fn (s SchemaNode) array_violations(arr []json2.Any, hops int) []VError {
 	mut errs := []VError{}
 	if items_ptr := s.items {
 		is_s := *items_ptr
 		for i, item in arr {
-			for e in is_s.validate(item) {
+			for e in is_s.validate_bounded(item, hops) {
 				mut ie := e
 				ie.instance_path = pointer_token(i.str()) + e.instance_path
 				// the same subschema speaks for every index, so the pointer
@@ -362,7 +406,7 @@ fn (s SchemaNode) array_violations(arr []json2.Any) []VError {
 	}
 	if contains_ptr := s.contains {
 		cs := *contains_ptr
-		errs << s.contains_violations(arr, cs)
+		errs << s.contains_violations(arr, cs, hops)
 	}
 	return errs
 }
@@ -371,10 +415,10 @@ fn (s SchemaNode) array_violations(arr []json2.Any) []VError {
 // The match floor is max(1, minContains), and maxContains bounds the count
 // above. When fewer matches than the floor, the row points at /minContains
 // whenever minContains raised the floor, or at /contains on the plain form.
-fn (s SchemaNode) contains_violations(arr []json2.Any, contains_schema Schema) []VError {
+fn (s SchemaNode) contains_violations(arr []json2.Any, contains_schema Schema, hops int) []VError {
 	mut matches := 0
 	for item in arr {
-		if contains_schema.validate(item).len == 0 {
+		if contains_schema.validate_bounded(item, hops).len == 0 {
 			matches++
 		}
 	}

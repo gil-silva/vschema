@@ -7,6 +7,29 @@ module vschema
 import json2
 import math
 
+// Pending holds one late-bound `$ref` target: while a pointer's subschema is
+// still being parsed, referencing nodes hold its Pending; the moment that
+// parse finishes, `target` is bound and every holder reads the same bound
+// schema, which is how recursive `$ref`s reach a fixed point at parse time.
+// The target is stored by value, not as a reference: a pointer would make
+// every read a tag-fragile dereference of an option field written during
+// parsing.
+struct Pending {
+	mut     target ?Schema
+}
+
+// ResCtx threads one schema document through recursive parsing: the raw
+// document stays available for `$ref` pointer resolution, and per-pointer
+// state (memo cache, in-flight marks, late-binding waiters) keeps resolution
+// parse-once and cycle-safe.
+struct ResCtx {
+	root json2.Any
+mut:
+	in_flight map[string]bool
+	pending   map[string][]&Pending
+	cache     map[string]&Pending
+}
+
 // Schema is either a boolean schema (trivially accepts or rejects everything)
 // or an object schema decoded into SchemaNode.
 pub type Schema = bool | SchemaNode
@@ -44,6 +67,9 @@ pub mut:
 	any_of         ?[]&Schema
 	one_of         ?[]&Schema
 	not            ?&Schema
+	raw_ref        ?string
+	ref_binding    ?&Pending
+	defs           ?map[string]&Schema
 }
 
 // is_num reports whether the Any carries a JSON number variant.
@@ -84,8 +110,22 @@ fn is_math_integer(v f64) bool {
 // parse_schema parses a schema tree from a decoded `json2.Any` value:
 // booleans become boolean schemas, objects become SchemaNodes, anything else
 // is a malformed schema. Unknown keywords are skipped as annotations; known
-// keywords with the wrong value type are reported as errors.
+// keywords with the wrong value type are reported as errors. `$ref`
+// fragment pointers resolve against the tree itself.
 pub fn parse_schema(a json2.Any) !Schema {
+	mut ctx := &ResCtx{ root: a }
+	// the root itself goes through the resolver as pointer "#" so any
+	// "$ref": "#" inside the document late-binds to the root instead of
+	// re-parsing the whole schema forever
+	pend := resolve_pointer(mut ctx, '#') or { return err }
+	return pend.target or {
+		return error('the root schema resolved through a pending reference')
+	}
+}
+
+// parse_schema_ctx is the recursive parser; ctx carries the document root so
+// `$ref` pointers resolve against the whole document, not the subschema.
+fn parse_schema_ctx(a json2.Any, mut ctx &ResCtx) !Schema {
 	if a is bool {
 		return Schema(a)
 	}
@@ -130,17 +170,17 @@ pub fn parse_schema(a json2.Any) !Schema {
 				node.pattern = parse_pattern(v) or { return err }
 			}
 			'properties' {
-				node.properties = parse_properties(v) or { return err }
+				node.properties = parse_properties(v, mut ctx) or { return err }
 			}
 			'required' {
 				node.required = parse_required(v) or { return err }
 			}
 			'propertyNames' {
-				pn := parse_schema_value(v, k) or { return err }
+				pn := parse_schema_value(v, k, mut ctx) or { return err }
 				node.property_names = &pn
 			}
 			'items' {
-				it_s := parse_schema_value(v, k) or { return err }
+				it_s := parse_schema_value(v, k, mut ctx) or { return err }
 				node.items = &it_s
 			}
 			'minProperties' {
@@ -159,7 +199,7 @@ pub fn parse_schema(a json2.Any) !Schema {
 				node.unique_items = parse_bool_keyword(v, k) or { return err }
 			}
 			'contains' {
-				co := parse_schema_value(v, k) or { return err }
+				co := parse_schema_value(v, k, mut ctx) or { return err }
 				node.contains = &co
 			}
 			'minContains' {
@@ -169,17 +209,29 @@ pub fn parse_schema(a json2.Any) !Schema {
 				node.max_contains = parse_length(v, k) or { return err }
 			}
 			'allOf' {
-				node.all_of = parse_schema_array(v, k) or { return err }
+				node.all_of = parse_schema_array(v, k, mut ctx) or { return err }
 			}
 			'anyOf' {
-				node.any_of = parse_schema_array(v, k) or { return err }
+				node.any_of = parse_schema_array(v, k, mut ctx) or { return err }
 			}
 			'oneOf' {
-				node.one_of = parse_schema_array(v, k) or { return err }
+				node.one_of = parse_schema_array(v, k, mut ctx) or { return err }
 			}
 			'not' {
-				n := parse_schema_value(v, k) or { return err }
+				n := parse_schema_value(v, k, mut ctx) or { return err }
 				node.not = &n
+			}
+			'$ref' {
+				if !(v is string) {
+					return error('${k}: must be a string')
+				}
+				raw := v as string
+				bind := resolve_pointer(mut ctx, raw) or { return err }
+				node.raw_ref = raw
+				node.ref_binding = bind
+			}
+			'$defs' {
+				node.defs = parse_defs(v, mut ctx) or { return err }
 			}
 			else {
 				// annotations and keywords not implemented on this release
@@ -278,12 +330,12 @@ fn parse_pattern(v json2.Any) !string {
 // parse_schema_value converts a schema-carrying keyword value (`items`,
 // `contains`, `propertyNames`): a boolean schema or a nested object schema
 // (which is parsed recursively, so its own errors surface at parse time).
-fn parse_schema_value(v json2.Any, name string) !Schema {
+fn parse_schema_value(v json2.Any, name string, mut ctx &ResCtx) !Schema {
 	if v is bool {
 		return Schema(v)
 	}
 	if is_map_schema(v) {
-		return parse_schema(v)
+		return parse_schema_ctx(v, mut ctx)
 	}
 	return error('${name}: must be a boolean or an object schema')
 }
@@ -291,13 +343,13 @@ fn parse_schema_value(v json2.Any, name string) !Schema {
 // parse_properties converts the `properties` keyword: an object mapping
 // property names to schemas, each parsed recursively. Subschemas are held by
 // reference so the node tree may nest arbitrarily without value cycles.
-fn parse_properties(v json2.Any) !map[string]&Schema {
+fn parse_properties(v json2.Any, mut ctx &ResCtx) !map[string]&Schema {
 	if !is_map_schema(v) {
 		return error('properties: must be an object')
 	}
 	mut out := map[string]&Schema{}
 	for pk, pv in v as map[string]json2.Any {
-		ps := parse_schema(pv) or { return err }
+		ps := parse_schema_ctx(pv, mut ctx) or { return err }
 		out[pk] = &ps
 	}
 	return out
@@ -331,14 +383,165 @@ fn parse_bool_keyword(v json2.Any, name string) !bool {
 // `oneOf`): an array of subschemas, each parsed recursively. An empty array
 // is legal — the draft's "allOf: [] defines zero constraints" group — so the
 // parser never rejects it.
-fn parse_schema_array(v json2.Any, name string) ![]&Schema {
+fn parse_schema_array(v json2.Any, name string, mut ctx &ResCtx) ![]&Schema {
 	if !(v is []json2.Any) {
 		return error('${name}: must be an array of schemas')
 	}
 	mut out := []&Schema{}
 	for item in v as []json2.Any {
-		s := parse_schema_value(item, name) or { return err }
+		s := parse_schema_value(item, name, mut ctx) or { return err }
 		out << &s
 	}
 	return out
+}
+
+// parse_defs converts the `$defs` keyword: entries parse through the pointer
+// memo (`#/$defs/<name>`), so a sibling `$ref` and the entry share one parse.
+// An entry whose target is still in flight (the container pointing at
+// itself, "empty tokens" style) stays out of the map: `$defs` exists as a
+// lookup surface, validation goes through the refs themselves, which bind
+// late anyway.
+fn parse_defs(v json2.Any, mut ctx &ResCtx) !map[string]&Schema {
+	if !is_map_schema(v) {
+		return error('$defs: must be an object')
+	}
+	mut out := map[string]&Schema{}
+	for dk, _ in v as map[string]json2.Any {
+		pend := resolve_pointer(mut ctx, '#/$defs' + pointer_token(dk)) or { return err }
+		bound := pend.target or { continue }
+		out[dk] = &bound
+	}
+	return out
+}
+
+// resolve_pointer resolves a document-fragment reference — either `#` (the
+// root) or `#/a/b` (a JSON Pointer into the document) — against the raw
+// document tree. Resolution is memoized per pointer, and a pointer currently
+// being parsed returns a Pending that binds once its parse completes, which
+// is how recursive `$ref`s reach a fixed point at parse time. Anything that
+// is not a fragment of this document is unsupported and fails loudly.
+fn resolve_pointer(mut ctx &ResCtx, frag string) !&Pending {
+	if !frag.starts_with('#') {
+		return error('$ref: external references are not supported — only in-document "#..." pointers')
+	}
+	if pend := ctx.cache[frag] {
+		return pend
+	}
+	if ctx.in_flight[frag] {
+		pd := &Pending{}
+		mut waiters := ctx.pending[frag] or { []&Pending{} }
+		waiters << pd
+		ctx.pending[frag] = waiters
+		return pd
+	}
+	ctx.in_flight[frag] = true
+	target := pointer_walk(ctx, frag[1..]) or {
+		ctx.in_flight.delete(frag)
+		return err
+	}
+	s := parse_schema_ctx(target, mut ctx) or {
+		ctx.in_flight.delete(frag)
+		return err
+	}
+	pd := &Pending{ target: s }
+	ctx.cache[frag] = pd
+	// late-bind every reference that arrived while this pointer was parsing
+	for mut waiter in ctx.pending[frag] or { []&Pending{} } {
+		waiter.target = s
+	}
+	ctx.pending.delete(frag)
+	ctx.in_flight.delete(frag)
+	return pd
+}
+
+// pointer_uri_decode decodes RFC 3986 percent-escapes in a fragment pointer:
+// every %XX pair becomes its byte value; malformed pairs or lone "%"
+// characters pass through unchanged. Decoding runs before tokenization so
+// "#/$defs/percent%25field" names the property "percent%field" (the draft's
+// $ref value is a URI reference whose fragment carries the pointer).
+fn pointer_uri_decode(s string) string {
+	if !s.contains('%') {
+		return s
+	}
+	raw := s.bytes()
+	mut out := []u8{}
+	mut i := 0
+	for i < raw.len {
+		if raw[i] == 37 && i + 2 < raw.len {
+			hi := hex_digit(raw[i + 1])
+			lo := hex_digit(raw[i + 2])
+			if hi >= 0 && lo >= 0 {
+				out << u8(hi * 16 + lo)
+				i += 3
+				continue
+			}
+		}
+		out << raw[i]
+		i++
+	}
+	return out.bytestr()
+}
+
+// hex_digit maps one hexadecimal character to its nibble value, or -1.
+fn hex_digit(b u8) int {
+	if 48 <= b && b <= 57 {
+		return int(b) - 48
+	}
+	if 97 <= b && b <= 102 {
+		return int(b) - 87
+	}
+	if 65 <= b && b <= 70 {
+		return int(b) - 55
+	}
+	return -1
+}
+
+// pointer_walk follows a JSON Pointer (already without its '#') through the
+// document tree; the leading slash of "#/a/b" opens the document relative
+// root and is not itself a token (`#` alone is the document). Percent
+// escapes decode first, then `~0` / `~1` unescape per token in the RFC 6901
+// order, and array elements are chosen by index.
+fn pointer_walk(ctx &ResCtx, pointer string) !json2.Any {
+	if pointer == '' {
+		return ctx.root
+	}
+	mut cur := ctx.root
+	rel := if pointer.starts_with('/') { pointer[1..] } else { pointer }
+	decoded := pointer_uri_decode(rel)
+	for token in decoded.split('/') {
+		key := token.replace('~1', '/').replace('~0', '~')
+		cur = pointer_down(cur, key) or {
+			return error('$ref: cannot resolve "#${pointer}"')
+		}
+	}
+	return cur
+}
+
+// pointer_down descends one pointer token: into an array only by index, into
+// an object by key; anything else has no such position.
+fn pointer_down(cur json2.Any, key string) ?json2.Any {
+	if cur is []json2.Any {
+		arr := cur as []json2.Any
+		// a hand-rolled digit check: string.int() non-option returns zero
+		// for garbage, which would alias index 0 instead of failing loudly
+		digits := '0123456789'
+		for c in key {
+			if !digits.contains(c.ascii_str()) {
+				return none
+			}
+		}
+		if key == '' {
+			return none
+		}
+		idx := key.int()
+		if idx < 0 || idx >= arr.len {
+			return none
+		}
+		return arr[idx]
+	}
+	if cur is map[string]json2.Any {
+		m := cur as map[string]json2.Any
+		return m[key] or { return none }
+	}
+	return none
 }

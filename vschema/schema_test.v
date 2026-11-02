@@ -480,3 +480,125 @@ fn test_errors_collect_not_short_circuit() {
 	assert errors[0].schema_path == '/type'
 	assert errors[1].schema_path == '/multipleOf'
 }
+
+fn test_ref_root_pointer() {
+	// "#" rebinds the whole document: the root's keywords apply through the
+	// reference at every delegation, so a no-progress "#" cycle repeats them
+	// until the recursion guard answers on /$ref
+	errors := schema('{"$ref": "#", "type": "integer"}').validate(val('"42"'))
+	// every delegation re-enters the root node (its own type check again):
+	// the root itself plus one node per delegation of the budget, and the
+	// final guard row
+	assert errors.filter(it.schema_path == '/type').len == max_ref_hops + 1, '${errors.len}'
+	assert errors.filter(it.message.contains('recursion guard')).len == 1
+}
+
+fn test_ref_pointer_path() {
+	s := schema('{"$defs": {"int": {"type": "integer"}}, "properties": {"a": {"$ref": "#/$defs/int"}}}')
+	assert s.is_valid(val('{"a": 42}'))
+	assert !s.is_valid(val('{"a": "42"}'))
+	// target rows re-point through the fragment minus "#"
+	errors := s.validate(val('{"a": "42"}'))
+	assert errors.len == 1, err_texts(errors)
+	assert errors[0].schema_path == '/properties/a/$defs/int/type'
+	assert errors[0].instance_path == '/a'
+}
+
+fn test_ref_reaches_nested_pointer_and_array_index() {
+	deep := schema('{"$defs": {"n": {"comments": ["its", {"title": {"minLength": 3}}]}}, "$ref": "#/$defs/n/comments/1/title"}')
+	assert deep.is_valid(val('"abc"'))
+	assert !deep.is_valid(val('"ab"'))
+	// target rows re-point into the document through the walked pointer
+	errors := deep.validate(val('"ab"'))
+	assert errors[0].schema_path == '/$defs/n/comments/1/title/minLength'
+	// array indices walk raw positions: getting past them needs exactness
+	assert rejects('{"$defs": {"n": {"comments": ["its", {"title": {}}]}}, "$ref": "#/$defs/n/comments/5/title"}')
+	assert rejects('{"$defs": {"n": {"comments": ["its", {"title": {}}]}}, "$ref": "#/$defs/n/missing/title"}')
+}
+
+fn test_ref_escaped_pointer_tokens() {
+	// a property named "a/b" is referenced by token "a~1b"; "e~f" by "e~0f"
+	esc := schema('{"$defs": {"a/b": {"type": "integer"}}, "$ref": "#/$defs/a~1b"}')
+	assert esc.is_valid(val('1'))
+	assert !esc.is_valid(val('"1"'))
+	tilde := schema('{"$defs": {"e~f": {"type": "integer"}}, "$ref": "#/$defs/e~0f"}')
+	assert tilde.is_valid(val('1'))
+	assert !tilde.is_valid(val('"1"'))
+}
+
+fn test_ref_to_boolean_schemas() {
+	t := schema('{"$defs": {"t": true}, "$ref": "#/$defs/t"}')
+	assert t.is_valid(val('1'))
+	assert t.is_valid(val('null'))
+	f := schema('{"$defs": {"f": false}, "$ref": "#/$defs/f"}')
+	assert !f.is_valid(val('1'))
+	errors := f.validate(val('1'))
+	assert errors.len == 1
+	assert errors[0].message.contains('false')
+}
+
+fn test_ref_recursive_data_driven() {
+	// descendants name themselves: each validation level walks one data hop
+	s := schema('{"$defs": {"node": {"type": "object", "properties": {"children": {"type": "array", "items": {"$ref": "#/$defs/node"}}}}}, "properties": {"a": {"$ref": "#/$defs/node"}}}')
+	assert s.is_valid(val('{"a": {}}'))
+	assert s.is_valid(val('{"a": {"children": [{"children": []}]}}'))
+	assert !s.is_valid(val('{"a": {"children": ["no"]}}'))
+	// three levels of data still resolve; the recursion depth equals depth
+	assert s.is_valid(val('{"a": {"children": [{"children": [{"children": []}]}]}}'))
+	// and a bad bottom-most leaf is caught at any depth
+	assert !s.is_valid(val('{"a": {"children": [{"children": ["x"]}]}}'))
+}
+
+fn test_ref_with_sibling_keywords_still_applies() {
+	// draft 2020-12: $ref is not exclusive, siblings constrain independently
+	s := schema('{"$defs": {"str": {"type": "string"}}, "$ref": "#/$defs/str", "minLength": 2}')
+	assert s.is_valid(val('"ok"'))
+	// the string type passes (target matches) but minLength fails:
+	errs := s.validate(val('"o"'))
+	assert errs.len == 1
+	assert errs[0].schema_path == '/minLength'
+	// non-string fails the target instead:
+	errs2 := s.validate(val('5'))
+	assert errs2.len == 1
+	assert errs2[0].schema_path == '/$defs/str/type'
+}
+
+fn test_parses_defs_through_the_memo() {
+	// a $defs entry and a $ref to it parse once; validity is one answer, not two parses diverging
+	s := schema('{"$defs": {"num": {"type": "number"}}, "properties": {"a": {"$ref": "#/$defs/num"}, "b": {"$ref": "#/$defs/num"}}}')
+	assert s.is_valid(val('{"a": 1, "b": 2.5}'))
+	assert !s.is_valid(val('{"a": 1, "b": "x"}'))
+	errors := s.validate(val('{"a": 1, "b": "x"}'))
+	assert errors.len == 1
+	assert errors[0].schema_path == '/properties/b/$defs/num/type'
+}
+
+fn test_parse_rejects_bad_refs() {
+	// not a fragment pointer: unsupported remote/external reference
+	assert rejects('{"$ref": "http://json-schema.org/draft-2020-12/schema"}')
+	// a quote inside a $defs entry name round-trips as a plain pointer letter
+	quoted := schema('{"$defs": {"quote\\"name": {"type": "string"}}, "$ref": "#/$defs/quote\\"name"}')
+	assert quoted.is_valid(val('"y"'))
+	// a pointer that walks nowhere is a parse error, loudly
+	assert rejects('{"$defs": {"x": {"$ref": "#/gone/deeper"}}}')
+	// a pointer that walks into a non-schema position (a string) fails
+	assert rejects('{"$defs": {"x": {"type": "string"}}, "$ref": "#/$defs/x/type"}')
+	// $ref must be a string when present
+	assert rejects('{"$ref": 7}')
+	// $defs must be an object when present
+	assert rejects('{"$defs": [1, 2]}')
+	// a property named $ref is an annotation position, not a reference
+	ok := schema('{"properties": {"$ref": {"type": "string"}}}')
+	assert ok.is_valid(val('{"$ref": "anything"}'))
+}
+
+fn test_ref_no_progress_cycle_hits_the_guard() {
+	// "#" delegating to the root that delegates: the budget, not the stack,
+	// ends the walk with one guard row
+	s := schema('{"$ref": "#"}')
+	assert s.is_valid(val('1')) == false
+	errors := s.validate(val('1'))
+	assert errors.len == 1, 'expected the guard row, got ${err_texts(errors)}'
+	assert errors[0].schema_path == '/$ref'
+	assert errors[0].message.contains('recursion guard')
+}

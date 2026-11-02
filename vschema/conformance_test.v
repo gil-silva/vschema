@@ -46,7 +46,9 @@ const conformance_files = [
 	'allOf.json'
 	'anyOf.json'
 	'oneOf.json'
-	'not.json',
+	'not.json'
+	'defs.json'
+	'ref.json',
 ]
 
 // unimplemented_keywords are the schema-semantic keywords outside this
@@ -55,11 +57,9 @@ const conformance_files = [
 // ($schema, $comment, default...) and implemented keywords do not appear.
 const unimplemented_keywords = [
 	'$anchor'
-	'$defs'
 	'$dynamicAnchor'
 	'$dynamicRef'
 	'$id'
-	'$ref'
 	'additionalItems'
 	'additionalProperties'
 	'dependentRequired'
@@ -105,13 +105,16 @@ fn test_conformance_groups() {
 		for gi, garr in groups.as_array() {
 			g := garr.as_map()
 			raw_schema := g['schema'] or { json2.Null{} }
-			s := parse_schema(raw_schema) or {
-				panic('${file} group ${gi}: suite schema failed to parse: ${err.msg()}')
-			}
+			// the skip decision runs before parsing on purpose: groups using
+			// refs this milestone does not implement (remote URLs, $id-based
+			// pointers) fail to parse by design and must be skipped, not paniced
 			if reason := group_skip_reason(g) {
 				skipped_groups++
 				eprintln('skipped [${file} group ${gi}]: ${reason}')
 				continue
+			}
+			s := parse_schema(raw_schema) or {
+				panic('${file} group ${gi}: suite schema failed to parse: ${err.msg()}')
 			}
 			for ti, tarr in (g['tests'] or { json2.Null{} }).as_array() {
 				t := tarr.as_map()
@@ -161,6 +164,13 @@ fn schema_skip_reason(sm map[string]json2.Any) ?string {
 	for k, v in sm {
 		if k in unimplemented_keywords {
 			return 'uses unimplemented keyword ${k}'
+		}
+		if k == '$ref' {
+			// a reference leaving this document (URL, URN, other file) cannot
+			// be answered — resolution is fragment-pointers only this milestone
+			if v is string && !((v as string).starts_with('#')) {
+				return 'uses external reference'
+			}
 		}
 		if k == 'pattern' {
 			if v is string {

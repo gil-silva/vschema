@@ -141,6 +141,38 @@ The same applies to `maximum: "3"`, `minLength: -1`, `minLength: 2.5`,
 `type: "banana"` and friends. Unknown keywords are **annotations** per the
 draft and are simply skipped — forward-compatibility, not an error.
 
+## References, recursion included
+
+Schemas grow by naming parts of themselves: `#/$defs/<name>` fragment
+pointers (RFC 6901 tokens, percent- and `~`-decoded), with `$defs` for the
+named parts — including parts that describe themselves:
+
+```v
+import json2
+import gil_silva.vschema.vschema
+
+// a "node" contract built of nodes — one $defs entry, one $ref long
+node := '{"type": "object", "properties": {"children":
+	{"type": "array", "items": {"$ref": "#/$defs/node"}}}}'
+s := vschema.parse_schema_json('{"$defs": {"node": ' + node + '}, "$ref": "#/$defs/node"}')!
+
+bad := json2.parse('{"children": ["x"]}', json2.DecoderOptions{})!
+rows := s.validate(bad)
+assert rows.len == 1
+assert rows[0].instance_path == '/children/0'
+// the row re-points through the reference into the document: not a copy of
+// the schema, a pointer into it
+assert rows[0].schema_path == '/$defs/node/properties/children/items/$defs/node/type'
+println('${rows[0].schema_path}: ${rows[0].message}')
+```
+
+The recursion is data-driven and terminates with the document's own shape; a
+pointer that makes no progress (`"$ref": "#"` pointing at itself forever)
+ends at a documented hop cap with a `/$ref` row, never a hang. External
+references (`https://…`, other files) are rejected at parse time — an
+in-document contract is what this crate validates, honest about what it does
+not reach.
+
 ## What works today
 
 | keyword       | note                                                                         |
@@ -160,6 +192,7 @@ draft and are simply skipped — forward-compatibility, not an error.
 | `uniqueItems` | duplicates decided by the same deep, kind-first equality                      |
 | `contains` `min/maxContains` | matching-item counts; `minContains: 0` allows zero matches      |
 | `allOf` `anyOf` `oneOf` `not` | `allOf` reports per branch; disjunctions answer on the keyword |
+| `$ref` `$defs` | fragment pointers (RFC 6901, `~`/`%`-decoded); rows re-point through refs |
 
 <details>
 <summary><b>Which groups are skipped, and why</b></summary>
@@ -168,8 +201,10 @@ draft and are simply skipped — forward-compatibility, not an error.
   regex engine does not compile. Such patterns reach validation and surface as
   an explicit `/pattern` violation ("pattern is not supported by the V regex
   engine") instead of silently passing.
-- Thirteen groups lean on keywords outside this milestone — `prefixItems`
-  (in `items`/`uniqueItems` groups), `additionalProperties`, `$defs`, `if`
+- Twenty-six of `ref.json`'s groups name `$id`-based addressing, which rides
+  on scope-aware URI resolution — outside this milestone's fragment-pointer
+  contract — and six reference remote URLs, skipped as `external reference`.
+  The remaining skips lean on `prefixItems`, `additionalProperties`, `if`
   and `unevaluatedProperties`. Every skip names its own reason; nothing
   is faked.
 
@@ -182,9 +217,10 @@ Checked against the official
 (draft 2020-12 group files):
 
 ```
-conformance: 583 passed, 0 failed, 13 groups skipped
-skipped [not.json group 8]: uses unimplemented keyword unevaluatedProperties
-skipped [pattern.json group 2]: pattern does not compile under the V regex engine
+conformance: 609 passed, 0 failed, 39 groups skipped
+skipped [ref.json group 15]: uses unimplemented keyword $id
+skipped [defs.json group 0]: uses external reference
+skipped [items.json group 5]: uses unimplemented keyword prefixItems
 ```
 
 Run it yourself:
@@ -242,6 +278,11 @@ vschema: schema: multipleOf: must be strictly greater than 0   (exit 1)
   `9007199254740991` vs `.0`-suffixed data is exactly what settles it.
 - **Structured errors end to end.** The same philosophy as V's own tooling:
   rows of data (path, rule, message), never a string to parse.
+- **Each `$ref` binds once.** A fragment pointer's subschema parses exactly
+  one time, however many `$ref`s name it; validation delegates through those
+  bindings with a per-validation hop budget (128), so recursive `$defs`
+  definitions cost nothing extra and unresolvable self-cycles answer with a
+  `/$ref` row.
 
 ## FAQ
 
@@ -280,7 +321,9 @@ Until it lands, the clone path above is the install.
   counts, `uniqueItems`, `contains` (conformance 470/0/12 as of this release)
 - **M3 — composition**: shipped — `allOf`, `anyOf`, `oneOf`, `not`
   (conformance 583/0/13 as of this release)
-- **M4 — references**: `$ref` · `$defs` · `$id`
+- **M4 — references**: shipped — `$ref` fragment pointers, `$defs`, parsed
+  through a pointer memo with late binding; conformance 609/0/39 as of this
+  release
 - **M5 — the differentiator**: comptime struct→schema derivation, so MCP
   servers and API crates can generate their `inputSchema`s from annotated V
   structs instead of hand-writing JSON strings
