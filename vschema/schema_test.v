@@ -380,6 +380,71 @@ fn test_parse_rejects_malformed_structure() {
 	assert !rejects('{"properties": {"a": {"description": "x"}}}')
 }
 
+fn test_all_of() {
+	s := schema('{"allOf": [{"type": "integer"}, {"minimum": 10}]}')
+	assert s.is_valid(val('42'))
+	assert !s.is_valid(val('"42"'))
+	// a single failing branch reports through its branch path
+	errors := s.validate(val('5'))
+	assert errors.len == 1
+	assert errors[0].schema_path == '/allOf/1/minimum'
+	// both failing branches are collected in one pass, in branch order
+	// (a non-integer number below the minimum fails type *and* minimum)
+	multi := s.validate(val('5.5'))
+	assert multi.len == 2
+	assert multi[0].schema_path == '/allOf/0/type'
+	assert multi[1].schema_path == '/allOf/1/minimum'
+}
+
+fn test_any_of() {
+	s := schema('{"anyOf": [{"type": "string"}, {"minimum": 5}]}')
+	assert s.is_valid(val('"hi"'))
+	assert s.is_valid(val('7'))
+	errors := s.validate(val('3'))
+	assert errors.len == 1
+	assert errors[0].schema_path == '/anyOf'
+	// a no-match row carries exactly one row, not every branch's failures
+	assert err_texts(errors) == 'no anyOf subschema matched'
+}
+
+fn test_one_of() {
+	disj := schema('{"oneOf": [{"type": "string"}, {"type": "integer"}]}')
+	assert disj.is_valid(val('42'))
+	assert disj.is_valid(val('"42"'))
+	errors := disj.validate(val('3.5'))
+	assert errors.len == 1
+	assert errors[0].schema_path == '/oneOf'
+	// two matching branches is as much a violation as zero
+	two := schema('{"oneOf": [{"type": "number"}, {"minimum": 0}]}')
+	te := two.validate(val('1'))
+	assert te.len == 1
+	assert err_texts(te) == 'value matches 2 oneOf subschemas, exactly one is required'
+}
+
+fn test_not() {
+	s := schema('{"not": {"type": "string"}}')
+	assert s.is_valid(val('42'))
+	assert !s.is_valid(val('"xx"'))
+	errors := s.validate(val('"xx"'))
+	assert errors.len == 1
+	assert errors[0].schema_path == '/not'
+	// not with a boolean schema: false always passes, true always fails
+	assert schema('{"not": false}').is_valid(val('1'))
+	assert !schema('{"not": true}').is_valid(val('1'))
+}
+
+fn test_parse_rejects_bad_composition() {
+	assert rejects('{"allOf": {"type": "string"}}')
+	assert rejects('{"anyOf": [1]}')
+	assert rejects('{"oneOf": ["string"]}')
+	assert rejects('{"not": 5}')
+	// bad subschema keywords are loud under composition too
+	assert rejects('{"allOf": [{"multipleOf": 0}]}')
+	// an empty composition is legal: zero constraints
+	assert rejects('{"allOf": []}') == false
+	assert schema('{"allOf": []}').is_valid(val('"whatever"'))
+}
+
 fn test_pattern_semantics() {
 	anchored := schema('{"pattern": "^a*$"}')
 	assert anchored.is_valid(val('"aaa"'))

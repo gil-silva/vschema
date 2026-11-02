@@ -40,6 +40,10 @@ pub mut:
 	contains       ?&Schema
 	min_contains   ?i64
 	max_contains   ?i64
+	all_of         ?[]&Schema
+	any_of         ?[]&Schema
+	one_of         ?[]&Schema
+	not            ?&Schema
 }
 
 // is_num reports whether the Any carries a JSON number variant.
@@ -163,6 +167,19 @@ pub fn parse_schema(a json2.Any) !Schema {
 			}
 			'maxContains' {
 				node.max_contains = parse_length(v, k) or { return err }
+			}
+			'allOf' {
+				node.all_of = parse_schema_array(v, k) or { return err }
+			}
+			'anyOf' {
+				node.any_of = parse_schema_array(v, k) or { return err }
+			}
+			'oneOf' {
+				node.one_of = parse_schema_array(v, k) or { return err }
+			}
+			'not' {
+				n := parse_schema_value(v, k) or { return err }
+				node.not = &n
 			}
 			else {
 				// annotations and keywords not implemented on this release
@@ -308,4 +325,20 @@ fn parse_bool_keyword(v json2.Any, name string) !bool {
 		return v
 	}
 	return error('${name}: must be a boolean')
+}
+
+// parse_schema_array converts a composition keyword (`allOf`, `anyOf`,
+// `oneOf`): an array of subschemas, each parsed recursively. An empty array
+// is legal — the draft's "allOf: [] defines zero constraints" group — so the
+// parser never rejects it.
+fn parse_schema_array(v json2.Any, name string) ![]&Schema {
+	if !(v is []json2.Any) {
+		return error('${name}: must be an array of schemas')
+	}
+	mut out := []&Schema{}
+	for item in v as []json2.Any {
+		s := parse_schema_value(item, name) or { return err }
+		out << &s
+	}
+	return out
 }

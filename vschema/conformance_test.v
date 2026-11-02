@@ -42,7 +42,11 @@ const conformance_files = [
 	'uniqueItems.json'
 	'contains.json'
 	'minContains.json'
-	'maxContains.json',
+	'maxContains.json'
+	'allOf.json'
+	'anyOf.json'
+	'oneOf.json'
+	'not.json',
 ]
 
 // unimplemented_keywords are the schema-semantic keywords outside this
@@ -58,13 +62,9 @@ const unimplemented_keywords = [
 	'$ref'
 	'additionalItems'
 	'additionalProperties'
-	'allOf'
-	'anyOf'
 	'dependentRequired'
 	'dependentSchemas'
 	'if'
-	'not'
-	'oneOf'
 	'prefixItems'
 	'then'
 	'else'

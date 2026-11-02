@@ -187,6 +187,71 @@ fn (s SchemaNode) validate_node(input json2.Any) []VError {
 		arr := input as []json2.Any
 		errs << s.array_violations(arr)
 	}
+	errs << s.composition_violations(input)
+	return errs
+}
+
+// composition_violations answers allOf / anyOf / oneOf / not: keywords that
+// apply to the instance whatever its kind. allOf collects every branch's rows
+// (every branch is mandatory); the disjunctive keywords report a single row
+// on the keyword itself — which branch failed is branch ordering, not a
+// per-document path, so a keyword-level row keeps output deterministic.
+fn (s SchemaNode) composition_violations(input json2.Any) []VError {
+	mut errs := []VError{}
+	if branches := s.all_of {
+		for bi, bptr in branches {
+			bd := *bptr
+			for e in bd.validate(input) {
+				mut be := e
+				be.schema_path = '/allOf${pointer_token(bi.str())}${e.schema_path}'
+				errs << be
+			}
+		}
+	}
+	if branches := s.any_of {
+		mut found := false
+		for bptr in branches {
+			bd := *bptr
+			if bd.validate(input).len == 0 {
+				found = true
+			}
+		}
+		if !found {
+			errs << VError{
+				schema_path: '/anyOf'
+				message:     'no anyOf subschema matched'
+			}
+		}
+	}
+	if branches := s.one_of {
+		mut matches := 0
+		for bptr in branches {
+			bd := *bptr
+			if bd.validate(input).len == 0 {
+				matches++
+			}
+		}
+		if matches == 0 {
+			errs << VError{
+				schema_path: '/oneOf'
+				message:     'no oneOf subschema matched'
+			}
+		} else if matches > 1 {
+			errs << VError{
+				schema_path: '/oneOf'
+				message:     'value matches ${matches} oneOf subschemas, exactly one is required'
+			}
+		}
+	}
+	if not_ptr := s.not {
+		nd := *not_ptr
+		if nd.validate(input).len == 0 {
+			errs << VError{
+				schema_path: '/not'
+				message:     'value must not match the not subschema'
+			}
+		}
+	}
 	return errs
 }
 

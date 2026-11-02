@@ -159,6 +159,7 @@ draft and are simply skipped — forward-compatibility, not an error.
 | `min/maxProperties` · `min/maxItems` | structure-count bounds, integers and decimals alike      |
 | `uniqueItems` | duplicates decided by the same deep, kind-first equality                      |
 | `contains` `min/maxContains` | matching-item counts; `minContains: 0` allows zero matches      |
+| `allOf` `anyOf` `oneOf` `not` | `allOf` reports per branch; disjunctions answer on the keyword |
 
 <details>
 <summary><b>Which groups are skipped, and why</b></summary>
@@ -167,9 +168,10 @@ draft and are simply skipped — forward-compatibility, not an error.
   regex engine does not compile. Such patterns reach validation and surface as
   an explicit `/pattern` violation ("pattern is not supported by the V regex
   engine") instead of silently passing.
-- Twelve groups lean on keywords outside this milestone — `prefixItems`
-  (in `items`/`uniqueItems` groups), `additionalProperties`, `allOf`, `$defs`
-  and `if`. Every skip names its own reason at run time; nothing is faked.
+- Thirteen groups lean on keywords outside this milestone — `prefixItems`
+  (in `items`/`uniqueItems` groups), `additionalProperties`, `$defs`, `if`
+  and `unevaluatedProperties`. Every skip names its own reason; nothing
+  is faked.
 
 </details>
 
@@ -180,8 +182,8 @@ Checked against the official
 (draft 2020-12 group files):
 
 ```
-conformance: 470 passed, 0 failed, 12 groups skipped
-skipped [items.json group 5]: uses unimplemented keyword prefixItems
+conformance: 583 passed, 0 failed, 13 groups skipped
+skipped [not.json group 8]: uses unimplemented keyword unevaluatedProperties
 skipped [pattern.json group 2]: pattern does not compile under the V regex engine
 ```
 
@@ -276,7 +278,8 @@ Until it lands, the clone path above is the install.
 
 - **M2 — structure**: shipped — `properties`, `items`, `required`, `propertyNames`,
   counts, `uniqueItems`, `contains` (conformance 470/0/12 as of this release)
-- **M3 — composition**: `allOf` · `anyOf` · `oneOf` · `not`
+- **M3 — composition**: shipped — `allOf`, `anyOf`, `oneOf`, `not`
+  (conformance 583/0/13 as of this release)
 - **M4 — references**: `$ref` · `$defs` · `$id`
 - **M5 — the differentiator**: comptime struct→schema derivation, so MCP
   servers and API crates can generate their `inputSchema`s from annotated V
