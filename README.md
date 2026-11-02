@@ -205,8 +205,22 @@ $ ./bin/vschema schema.json bad.json
 error at "" (/type): expected type "integer", got "string"   (exit 1)
 ```
 
+No document? Then the schema itself is under test — a lint that reports
+parse-time schema errors and nothing else:
+
+```text
+$ ./bin/vschema schema.json
+schema ok                                        (exit 0)
+
+$ ./bin/vschema bad_schema.json
+vschema: schema: multipleOf: must be strictly greater than 0   (exit 1)
+```
+
 ## Notes for the curious
 
+- **Parse once, check many.** A parsed `Schema` is plain data — the same `s`
+  validates one document or a million, with no per-document setup and no
+  re-decoding between runs.
 - **Pure V, no C.** Parsing rides on the standard `json2` module; `pattern`
   reuses the standard `regex` module. Nothing else is pulled in.
 - **One number type.** Documents decoded by `json2` carry their numbers as
