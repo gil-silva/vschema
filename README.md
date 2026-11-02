@@ -151,7 +151,7 @@ draft and are simply skipped — forward-compatibility, not an error.
 | `maximum` `minimum` | inclusive boundaries, integers and floats alike                        |
 | `exclusiveMaximum` `exclusiveMinimum` | exclusive; the boundary point is a violation           |
 | `multipleOf`  | checked through `f64` with a bounded epsilon; overflows report honestly |
-| `minLength` `maxLength` | Unicode code points (💩 is one character, not four bytes)            |
+| `minLength` `maxLength` | Unicode code points (🇻 is one character, not four bytes)            |
 | `pattern`     | substring semantics (`a+` matches inside `xxaayy`) via the stdlib `regex`     |
 
 <details>
