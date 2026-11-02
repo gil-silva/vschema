@@ -9,7 +9,7 @@ pure V · structured errors · zero C dependencies
 
 [![draft](https://img.shields.io/badge/draft-2020--12-4a6b9e)](https://json-schema.org/draft/2020-12)
 [![version](https://img.shields.io/badge/version-0.1.0-8a5f4a)](v.mod)
-[![vpm](https://img.shields.io/badge/vpm-gil--silza.vschema-2b70a7)](https://vpm.vlang.io/packages/gil-silza.vschema)
+[![vpm](https://img.shields.io/badge/vpm-gil--silva.vschema-2b70a7)](https://vpm.vlang.io/packages/gil-silva.vschema)
 [![license](https://img.shields.io/badge/license-MIT-3a8a5f)](#license)
 
 *Stop arguing about JSON. Make the schema enforce it.*
@@ -31,10 +31,10 @@ filter or log, not a blunt `valid: false`.
 
 ```sh
 # once the vpm listing lands: (pending submission)
-v install gil-silza.vschema
+v install gil-silva.vschema
 
 # today: clone and use it as a module
-git clone https://github.com/gil-silza/vschema
+git clone https://github.com/gil-silva/vschema
 ```
 
 <details>
@@ -44,7 +44,7 @@ Publishers resolve imports from `~/.vmodules`. A developer symlink mirrors the
 installed layout:
 
 ```sh
-ln -s /home/you/vlang/vschema ~/.vmodules/gil_silza/vschema
+ln -s /home/you/vlang/vschema ~/.vmodules/gil_silva/vschema
 ```
 
 </details>
@@ -53,7 +53,7 @@ ln -s /home/you/vlang/vschema ~/.vmodules/gil_silza/vschema
 
 ```v
 import json2
-import gil_silza.vschema.vschema
+import gil_silva.vschema.vschema
 
 // parse the contract — malformed keywords fail loudly, right here
 s := vschema.parse_schema_json('{"type": "integer", "minimum": 0, "maximum": 99}')!
@@ -67,7 +67,7 @@ assert errors.len == 0
 And what happens when it breaks:
 
 ```v
-import gil_silza.vschema.vschema
+import gil_silva.vschema.vschema
 
 s := vschema.parse_schema_json('{"type": "integer", "minimum": 0, "maximum": 99}')!
 violations := s.validate_json('"not a number"') or { panic('malformed JSON: ${err.msg()}') }
@@ -82,7 +82,7 @@ Values do not need to come from a file — anything you can express as a
 
 ```v
 import json2
-import gil_silza.vschema.vschema
+import gil_silva.vschema.vschema
 
 s := vschema.parse_schema_json('{"type": "integer", "minimum": 0, "maximum": 99}')!
 assert s.is_valid(json2.Any(42))
@@ -128,7 +128,7 @@ A schema with a malformed keyword is a schema error, surfaced at parse time —
 schema bugs should fail loudly, not wait for the first document:
 
 ```v
-import gil_silza.vschema.vschema
+import gil_silva.vschema.vschema
 
 _ = vschema.parse_schema_json('{"multipleOf": 0}') or {
 	println('bad schema: ${err.msg()}')
@@ -261,7 +261,7 @@ false pass.
 
 <details>
 <summary><b>Where is the vpm listing?</b></summary>
-`gil-silza.vschema` is queued for submission; the badge links ahead of it.
+`gil-silva.vschema` is queued for submission; the badge links ahead of it.
 Until it lands, the clone path above is the install.
 </details>
 
