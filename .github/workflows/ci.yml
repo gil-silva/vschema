@@ -11,10 +11,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install V 0.5.2 (the version the README performance notes were measured with)
-        uses: vlang/setup-v@v1
-        with:
-          version: 0.5.2
+      - name: install V 0.5.2 (the release binary; the version the README performance notes were measured with)
+        run: |
+          curl -fsSL -o /tmp/v_linux.zip https://github.com/vlang/v/releases/download/0.5.2/v_linux.zip
+          unzip -q /tmp/v_linux.zip -d "$HOME"
+          chmod +x "$HOME/v/v"
+          echo "$HOME/v" >> "$GITHUB_PATH"
+          "$HOME/v/v" version
 
       - name: fmt and vet
         run: |
