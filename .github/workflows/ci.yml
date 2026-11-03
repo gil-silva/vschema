@@ -1,0 +1,33 @@
+# ci.yml — build, fmt/vet and the full test sweep (unit + draft-2020-12
+# conformance).
+
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install V 0.5.2 (the version the README performance notes were measured with)
+        uses: vlang/setup-v@v1
+        with:
+          version: 0.5.2
+
+      - name: fmt and vet
+        run: |
+          v fmt -c .
+          v vet .
+
+      - name: fetch the official test suite (pinned commit; CI reproduces the README conformance with it)
+        run: |
+          curl -fsSL https://github.com/json-schema-org/JSON-Schema-Test-Suite/archive/ed0ebd31d0a83fd79e99a32aa0c884b966ada057.tar.gz | tar -xz
+          mv JSON-Schema-Test-Suite-ed0ebd31d0a83fd79e99a32aa0c884b966ada057 testsuite
+
+      - name: build
+        run: v .
+
+      - name: test (unit + draft-2020-12 conformance)
+        run: v -no-parallel test ./vschema

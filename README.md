@@ -9,6 +9,7 @@ Targets [draft 2020-12](https://json-schema.org/specification-links#2020-12) ·
 measured, documented performance · pure V · structured errors ·
 zero C dependencies
 
+[![CI](https://github.com/gil-silva/vschema/actions/workflows/ci.yml/badge.svg)](https://github.com/gil-silva/vschema/actions/workflows/ci.yml)
 [![draft](https://img.shields.io/badge/draft-2020--12-4a6b9e)](https://json-schema.org/draft/2020-12)
 [![version](https://img.shields.io/badge/version-0.1.0-8a5f4a)](v.mod)
 [![vpm](https://img.shields.io/badge/vpm-gil--silva.vschema-2b70a7)](https://vpm.vlang.io/packages/gil-silva.vschema)
