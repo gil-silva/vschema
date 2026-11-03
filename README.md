@@ -2,7 +2,8 @@
 
 # vschema
 
-**Fast JSON Schema validation for the V language: schemas that enforce, errors that explain.**
+**Fast JSON Schema validation for the V language: parse a schema once, check
+every request, explain every violation.**
 
 Targets [draft 2020-12](https://json-schema.org/specification-links#2020-12) ·
 measured, documented performance · pure V · structured errors ·
