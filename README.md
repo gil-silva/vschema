@@ -36,26 +36,27 @@ concurrent requests included — with the measured numbers documented in
 ## Install
 
 ```sh
-v install vschema
+# through the vpm listing
+v install gil-silva.vschema
+# — in code this resolves as: import gil_silva.vschema
 
-# or straight from the repository
-git clone https://github.com/gil-silva/vschema
+# or place the module flat, keeping the plain import used below:
+git clone --depth 1 https://github.com/gil-silva/vschema ~/.vmodules/vschema
 ```
 
 <details>
-<summary><b>Working from a git clone instead?</b></summary>
+<summary><b>Why is the plain <code>import vschema</code> not the vpm import?</b></summary>
 
-Publishers resolve imports from `~/.vmodules`, and the module files sit at the
-repository root, so one link is all it takes:
+vpm keys its registry by author: the listing is `gil-silva.vschema`, a bare
+`v install vschema` 404s against it, and the install lands two levels deep
+under `~/.vmodules/gil_silva/` — from where only
+`import gil_silva.vschema` resolves (both probed). The flat layout from the
+clone line is what makes `import vschema` work, and a local clone needs only
+one symlink to the same effect:
 
 ```sh
 ln -s /where/you/cloned/vschema ~/.vmodules/vschema
 ```
-
-The plain `v install vschema` form is what makes that one link (and the
-installed package itself) resolvable as `import vschema`: the author-prefixed
-`v install gil-silva.vschema` lands two directories deep under
-`~/.vmodules/gil_silva/`, from where the flat name is not found.
 
 </details>
 
