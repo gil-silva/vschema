@@ -2,7 +2,7 @@
 
 # vschema
 
-**JSON Schema validation for V: documents get contracts, violations get answers.**
+**Fast JSON Schema validation for the V language: schemas that enforce, errors that explain.**
 
 Targets [draft 2020-12](https://json-schema.org/specification-links#2020-12) ·
 measured, documented performance · pure V · structured errors ·
