@@ -65,10 +65,12 @@ pub fn (s Schema) validate(input json2.Any) []VError {
 fn (s Schema) validate_bounded(input json2.Any, hops int, mut pc &PatternCache) []VError {
 	if s is bool {
 		if !s {
-			return [VError{
-				schema_path: ''
-				message:     'the schema is false and rejects this instance'
-			}]
+			return [
+				VError{
+					schema_path: ''
+					message:     'the schema is false and rejects this instance'
+				},
+			]
 		}
 		return []
 	}
@@ -302,10 +304,12 @@ fn (s SchemaNode) ref_violations(input json2.Any, hops int, mut pc &PatternCache
 	raw := s.raw_ref or { return []VError{} }
 	bind := s.ref_binding or { return []VError{} }
 	if hops <= 0 {
-		return [VError{
-			schema_path: '/$ref'
-			message:     'reference delegation exceeded the ${max_ref_hops}-hop recursion guard'
-		}]
+		return [
+			VError{
+				schema_path: '/$ref'
+				message:     'reference delegation exceeded the ${max_ref_hops}-hop recursion guard'
+			},
+		]
 	}
 	target := bind.target or { return []VError{} }
 	mut errs := []VError{}
@@ -451,22 +455,28 @@ fn (s SchemaNode) contains_violations(arr []json2.Any, contains_schema Schema, h
 	}
 	if matches < floor {
 		if min_count := s.min_contains {
-			return [VError{
-				schema_path: '/minContains'
-				message:     'only ${matches} array item(s) match the contains schema, fewer than ${min_count}'
-			}]
+			return [
+				VError{
+					schema_path: '/minContains'
+					message:     'only ${matches} array item(s) match the contains schema, fewer than ${min_count}'
+				},
+			]
 		}
-		return [VError{
-			schema_path: '/contains'
-			message:     'no array item matches the contains schema'
-		}]
+		return [
+			VError{
+				schema_path: '/contains'
+				message:     'no array item matches the contains schema'
+			},
+		]
 	}
 	if max_count := s.max_contains {
 		if matches > int(max_count) {
-			return [VError{
-				schema_path: '/maxContains'
-				message:     'more array item(s) match the contains schema (${matches}) than the maximum of ${max_count}'
-			}]
+			return [
+				VError{
+					schema_path: '/maxContains'
+					message:     'more array item(s) match the contains schema (${matches}) than the maximum of ${max_count}'
+				},
+			]
 		}
 	}
 	return []

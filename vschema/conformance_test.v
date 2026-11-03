@@ -19,35 +19,35 @@ import regex
 // conformance_files are the draft 2020-12 group files covered by the
 // implemented keywords (see module doc).
 const conformance_files = [
-	'boolean_schema.json'
-	'type.json'
-	'const.json'
-	'enum.json'
-	'multipleOf.json'
-	'maximum.json'
-	'minimum.json'
-	'exclusiveMaximum.json'
-	'exclusiveMinimum.json'
-	'maxLength.json'
-	'minLength.json'
-	'pattern.json'
-	'properties.json'
-	'required.json'
-	'propertyNames.json'
-	'items.json'
-	'minProperties.json'
-	'maxProperties.json'
-	'minItems.json'
-	'maxItems.json'
-	'uniqueItems.json'
-	'contains.json'
-	'minContains.json'
-	'maxContains.json'
-	'allOf.json'
-	'anyOf.json'
-	'oneOf.json'
-	'not.json'
-	'defs.json'
+	'boolean_schema.json',
+	'type.json',
+	'const.json',
+	'enum.json',
+	'multipleOf.json',
+	'maximum.json',
+	'minimum.json',
+	'exclusiveMaximum.json',
+	'exclusiveMinimum.json',
+	'maxLength.json',
+	'minLength.json',
+	'pattern.json',
+	'properties.json',
+	'required.json',
+	'propertyNames.json',
+	'items.json',
+	'minProperties.json',
+	'maxProperties.json',
+	'minItems.json',
+	'maxItems.json',
+	'uniqueItems.json',
+	'contains.json',
+	'minContains.json',
+	'maxContains.json',
+	'allOf.json',
+	'anyOf.json',
+	'oneOf.json',
+	'not.json',
+	'defs.json',
 	'ref.json',
 ]
 
@@ -56,19 +56,19 @@ const conformance_files = [
 // fully-correctly yet, so the group is skipped and counted. Annotations
 // ($schema, $comment, default...) and implemented keywords do not appear.
 const unimplemented_keywords = [
-	'$anchor'
-	'$dynamicAnchor'
-	'$dynamicRef'
-	'$id'
-	'additionalItems'
-	'additionalProperties'
-	'dependentRequired'
-	'dependentSchemas'
-	'if'
-	'prefixItems'
-	'then'
-	'else'
-	'unevaluatedItems'
+	'$anchor',
+	'$dynamicAnchor',
+	'$dynamicRef',
+	'$id',
+	'additionalItems',
+	'additionalProperties',
+	'dependentRequired',
+	'dependentSchemas',
+	'if',
+	'prefixItems',
+	'then',
+	'else',
+	'unevaluatedItems',
 	'unevaluatedProperties',
 ]
 
@@ -116,7 +116,8 @@ fn test_conformance_groups() {
 			s := parse_schema(raw_schema) or {
 				panic('${file} group ${gi}: suite schema failed to parse: ${err.msg()}')
 			}
-			for ti, tarr in (g['tests'] or { json2.Null{} }).as_array() {
+			raw_tests := g['tests'] or { json2.Null{} }
+			for ti, tarr in raw_tests.as_array() {
 				t := tarr.as_map()
 				mut t_description := ''
 				if d := t['description'] {
@@ -151,7 +152,7 @@ fn test_conformance_groups() {
 // that fails to compile under the V regex engine.
 fn group_skip_reason(g map[string]json2.Any) ?string {
 	raw_schema := g['schema'] or { return none }
-	if !(raw_schema is map[string]json2.Any) {
+	if raw_schema !is map[string]json2.Any {
 		return none
 	}
 	return schema_skip_reason(raw_schema as map[string]json2.Any)

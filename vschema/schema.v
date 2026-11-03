@@ -15,7 +15,8 @@ import math
 // every read a tag-fragile dereference of an option field written during
 // parsing.
 struct Pending {
-	mut     target ?Schema
+mut:
+	target ?Schema
 }
 
 // ResCtx threads one schema document through recursive parsing: the raw
@@ -114,14 +115,14 @@ fn is_math_integer(v f64) bool {
 // keywords with the wrong value type are reported as errors. `$ref`
 // fragment pointers resolve against the tree itself.
 pub fn parse_schema(a json2.Any) !Schema {
-	mut ctx := &ResCtx{ root: a }
+	mut ctx := &ResCtx{
+		root: a
+	}
 	// the root itself goes through the resolver as pointer "#" so any
 	// "$ref": "#" inside the document late-binds to the root instead of
 	// re-parsing the whole schema forever
 	pend := resolve_pointer(mut ctx, '#') or { return err }
-	return pend.target or {
-		return error('the root schema resolved through a pending reference')
-	}
+	return pend.target or { return error('the root schema resolved through a pending reference') }
 }
 
 // parse_schema_ctx is the recursive parser; ctx carries the document root so
@@ -230,7 +231,7 @@ fn parse_schema_ctx(a json2.Any, mut ctx &ResCtx) !Schema {
 				node.not = &negated
 			}
 			'$ref' {
-				if !(v is string) {
+				if v !is string {
 					return error('${k}: must be a string')
 				}
 				raw := v as string
@@ -365,7 +366,7 @@ fn parse_properties(v json2.Any, mut ctx &ResCtx) !map[string]&Schema {
 
 // parse_required converts the `required` keyword: an array of property names.
 fn parse_required(v json2.Any) ![]string {
-	if !(v is []json2.Any) {
+	if v !is []json2.Any {
 		return error('required: must be an array of strings')
 	}
 	mut names := []string{}
@@ -392,7 +393,7 @@ fn parse_bool_keyword(v json2.Any, name string) !bool {
 // is legal — the draft's "allOf: [] defines zero constraints" group — so the
 // parser never rejects it.
 fn parse_schema_array(v json2.Any, name string, mut ctx &ResCtx) ![]&Schema {
-	if !(v is []json2.Any) {
+	if v !is []json2.Any {
 		return error('${name}: must be an array of schemas')
 	}
 	mut out := []&Schema{}
@@ -451,7 +452,9 @@ fn resolve_pointer(mut ctx &ResCtx, frag string) !&Pending {
 		ctx.in_flight.delete(frag)
 		return err
 	}
-	bound := &Pending{ target: parsed }
+	bound := &Pending{
+		target: parsed
+	}
 	ctx.cache[frag] = bound
 	// late-bind every reference that arrived while this pointer was parsing
 	for mut waiter in ctx.pending[frag] or { []&Pending{} } {
@@ -518,9 +521,7 @@ fn pointer_walk(ctx &ResCtx, pointer string) !json2.Any {
 	decoded := pointer_uri_decode(rel)
 	for token in decoded.split('/') {
 		key := token.replace('~1', '/').replace('~0', '~')
-		cur = pointer_down(cur, key) or {
-			return error('$ref: cannot resolve "#${pointer}"')
-		}
+		cur = pointer_down(cur, key) or { return error('$ref: cannot resolve "#${pointer}"') }
 	}
 	return cur
 }

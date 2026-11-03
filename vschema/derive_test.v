@@ -79,7 +79,8 @@ fn test_derive_scalars_and_containers() {
 fn test_derive_nested_shape() {
 	doc := schema_json[Task]()!
 	// the Day entry lives once, under $defs, listing only required fields
-	nested := '"Day":{"type":"object","properties":' + '{"name":{"type":"string"},"b_day":{"type":"integer"}},"required":["name"]}'
+	nested := '"Day":{"type":"object","properties":' +
+		'{"name":{"type":"string"},"b_day":{"type":"integer"}},"required":["name"]}'
 	assert doc.contains(nested)
 }
 
@@ -106,8 +107,8 @@ fn test_derive_cycle_roundtrip() {
 	assert !doc.contains(',"Node":{')
 	schema := schema_of[Node]()!
 	// a recursive instance whose every level satisfies the shape validates clean
-	good := json2.parse('{"name":"root","kids":[{"name":"a","kids":[]},{"name":"b","kids":[]}]}',
-		json2.DecoderOptions{})!
+	good :=
+		json2.parse('{"name":"root","kids":[{"name":"a","kids":[]},{"name":"b","kids":[]}]}', json2.DecoderOptions{})!
 	assert schema.validate(good).len == 0
 	// a child missing its own required `kids` fails on the derived schema
 	bad := json2.parse('{"name":"root","kids":[{"name":"a"}]}', json2.DecoderOptions{})!

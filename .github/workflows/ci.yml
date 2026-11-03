@@ -11,13 +11,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install V 0.5.2 (the release binary; the version the README performance notes were measured with)
-        run: |
-          curl -fsSL -o /tmp/v_linux.zip https://github.com/vlang/v/releases/download/0.5.2/v_linux.zip
-          unzip -q /tmp/v_linux.zip -d "$HOME"
-          chmod +x "$HOME/v/v"
-          echo "$HOME/v" >> "$GITHUB_PATH"
-          "$HOME/v/v" version
+      # plain `json2` (the JSON backend vschema builds on) only exists in
+      # current V master; releases up to 0.5.2 ship the incompatible x.json2,
+      # so the pin is a master commit - the local dev compiler - not a release
+      # tag. The action sha itself is pinned (the vsl/vtl pattern).
+      - name: install V (pinned master commit, the compiler the repo is verified against)
+        uses: vlang/setup-v@663cc08827d1fc0532ee755b4dedbb183c11d06a # v1.7
+        with:
+          version: d126ca3fd329aa7be68efcc2f61d074f8b5dfd3f
 
       - name: fmt and vet
         run: |

@@ -45,7 +45,8 @@ fn test_parse_rejects_non_schemas() {
 }
 
 fn test_parse_unknown_keywords_are_annotations() {
-	s := schema('{"$schema": "https://json-schema.org/draft/2020-12/schema", "$comment": "note", "type": "string"}')
+	s :=
+		schema('{"$schema": "https://json-schema.org/draft/2020-12/schema", "$comment": "note", "type": "string"}')
 	assert s.is_valid(val('"x"'))
 	assert !s.is_valid(val('1'))
 }
@@ -258,7 +259,8 @@ fn test_string_lengths_count_codepoints() {
 }
 
 fn test_properties_and_required() {
-	s := schema('{"type": "object", "properties": {"name": {"type": "string"}, "n": {"type": "integer"}}, "required": ["name"]}')
+	s :=
+		schema('{"type": "object", "properties": {"name": {"type": "string"}, "n": {"type": "integer"}}, "required": ["name"]}')
 	assert s.is_valid(val('{"name": "gil", "n": 42}'))
 	// an empty object misses the required "name" — but n was never there
 	assert !s.is_valid(val('{}'))
@@ -494,7 +496,8 @@ fn test_ref_root_pointer() {
 }
 
 fn test_ref_pointer_path() {
-	s := schema('{"$defs": {"int": {"type": "integer"}}, "properties": {"a": {"$ref": "#/$defs/int"}}}')
+	s :=
+		schema('{"$defs": {"int": {"type": "integer"}}, "properties": {"a": {"$ref": "#/$defs/int"}}}')
 	assert s.is_valid(val('{"a": 42}'))
 	assert !s.is_valid(val('{"a": "42"}'))
 	// target rows re-point through the fragment minus "#"
@@ -505,7 +508,8 @@ fn test_ref_pointer_path() {
 }
 
 fn test_ref_reaches_nested_pointer_and_array_index() {
-	deep := schema('{"$defs": {"n": {"comments": ["its", {"title": {"minLength": 3}}]}}, "$ref": "#/$defs/n/comments/1/title"}')
+	deep :=
+		schema('{"$defs": {"n": {"comments": ["its", {"title": {"minLength": 3}}]}}, "$ref": "#/$defs/n/comments/1/title"}')
 	assert deep.is_valid(val('"abc"'))
 	assert !deep.is_valid(val('"ab"'))
 	// target rows re-point into the document through the walked pointer
@@ -539,7 +543,8 @@ fn test_ref_to_boolean_schemas() {
 
 fn test_ref_recursive_data_driven() {
 	// descendants name themselves: each validation level walks one data hop
-	s := schema('{"$defs": {"node": {"type": "object", "properties": {"children": {"type": "array", "items": {"$ref": "#/$defs/node"}}}}}, "properties": {"a": {"$ref": "#/$defs/node"}}}')
+	s :=
+		schema('{"$defs": {"node": {"type": "object", "properties": {"children": {"type": "array", "items": {"$ref": "#/$defs/node"}}}}}, "properties": {"a": {"$ref": "#/$defs/node"}}}')
 	assert s.is_valid(val('{"a": {}}'))
 	assert s.is_valid(val('{"a": {"children": [{"children": []}]}}'))
 	assert !s.is_valid(val('{"a": {"children": ["no"]}}'))
@@ -565,7 +570,8 @@ fn test_ref_with_sibling_keywords_still_applies() {
 
 fn test_parses_defs_through_the_memo() {
 	// a $defs entry and a $ref to it parse once; validity is one answer, not two parses diverging
-	s := schema('{"$defs": {"num": {"type": "number"}}, "properties": {"a": {"$ref": "#/$defs/num"}, "b": {"$ref": "#/$defs/num"}}}')
+	s :=
+		schema('{"$defs": {"num": {"type": "number"}}, "properties": {"a": {"$ref": "#/$defs/num"}, "b": {"$ref": "#/$defs/num"}}}')
 	assert s.is_valid(val('{"a": 1, "b": 2.5}'))
 	assert !s.is_valid(val('{"a": 1, "b": "x"}'))
 	errors := s.validate(val('{"a": 1, "b": "x"}'))
@@ -577,7 +583,8 @@ fn test_parse_rejects_bad_refs() {
 	// not a fragment pointer: unsupported remote/external reference
 	assert rejects('{"$ref": "http://json-schema.org/draft-2020-12/schema"}')
 	// a quote inside a $defs entry name round-trips as a plain pointer letter
-	quoted := schema('{"$defs": {"quote\\"name": {"type": "string"}}, "$ref": "#/$defs/quote\\"name"}')
+	quoted :=
+		schema('{"$defs": {"quote\\"name": {"type": "string"}}, "$ref": "#/$defs/quote\\"name"}')
 	assert quoted.is_valid(val('"y"'))
 	// a pointer that walks nowhere is a parse error, loudly
 	assert rejects('{"$defs": {"x": {"$ref": "#/gone/deeper"}}}')
