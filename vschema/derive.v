@@ -77,9 +77,15 @@ fn emit_any[T](v T, mut seen []string, mut order []string, mut defs map[string]s
 	} $else $if T is $string {
 		return '{"type":"string"}'
 	} $else $if T is $enum {
+		// On the pinned compiler the comptime member's `.value` is the enum
+		// instance itself, so `.str()` renders the member NAME and bare
+		// identifiers make the derived document unparseable. int() reads the
+		// ordinal, explicit member values included. json2's default encoder
+		// puts enum fields in as names, so matching documents are encoded
+		// with enum_as_int (property_test.v does exactly that).
 		mut vals := []string{}
 		$for m in T.values {
-			vals << m.value.str()
+			vals << int(m.value).str()
 		}
 		return '{"type":"integer","enum":[' + vals.join(',') + ']}'
 	} $else $if T is $int {
