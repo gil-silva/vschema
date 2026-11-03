@@ -1,5 +1,5 @@
 // vschema CLI — validate a JSON document against a JSON Schema, or lint a schema on its own.
-// Build: v .   (→ bin/vschema)
+// Build: v -o bin/vschema ./cmd   (→ bin/vschema)
 // Run:   vschema <schema.json> [<document.json>]
 // With a document: prints `valid`, or one structured violation line per error.
 // Without one: parses the schema and reports what is wrong with it (lint mode).

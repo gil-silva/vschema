@@ -21,9 +21,11 @@ jobs:
           version: d126ca3fd329aa7be68efcc2f61d074f8b5dfd3f
 
       # property_test.v drives its checks with hypo; the import resolves
-      # from ~/.vmodules at compile time.
+      # from ~/.vmodules at compile time. The plain name installs flat at
+      # ~/.vmodules/hypo — the scoped gil_silva.* form lands two levels
+      # deep, and the package never resolves from there.
       - name: install hypo (property_test.v's seeded checker)
-        run: v install gil-silva.hypo
+        run: v install hypo
 
       - name: fmt and vet
         run: |
@@ -36,7 +38,7 @@ jobs:
           mv JSON-Schema-Test-Suite-ed0ebd31d0a83fd79e99a32aa0c884b966ada057 testsuite
 
       - name: build
-        run: v .
+        run: v -o bin/vschema ./cmd
 
       - name: test (unit + draft-2020-12 conformance)
-        run: v -no-parallel test ./vschema
+        run: v -no-parallel test .

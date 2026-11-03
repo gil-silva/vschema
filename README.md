@@ -36,22 +36,26 @@ concurrent requests included — with the measured numbers documented in
 ## Install
 
 ```sh
-# once the vpm listing lands: (pending submission)
-v install gil-silva.vschema
+v install vschema
 
-# today: clone and use it as a module
+# or straight from the repository
 git clone https://github.com/gil-silva/vschema
 ```
 
 <details>
-<summary><b>Using it locally in your own project?</b></summary>
+<summary><b>Working from a git clone instead?</b></summary>
 
-Publishers resolve imports from `~/.vmodules`. A developer symlink mirrors the
-installed layout:
+Publishers resolve imports from `~/.vmodules`, and the module files sit at the
+repository root, so one link is all it takes:
 
 ```sh
-ln -s /home/you/vlang/vschema ~/.vmodules/gil_silva/vschema
+ln -s /where/you/cloned/vschema ~/.vmodules/vschema
 ```
+
+The plain `v install vschema` form is what makes that one link (and the
+installed package itself) resolvable as `import vschema`: the author-prefixed
+`v install gil-silva.vschema` lands two directories deep under
+`~/.vmodules/gil_silva/`, from where the flat name is not found.
 
 </details>
 
@@ -59,7 +63,7 @@ ln -s /home/you/vlang/vschema ~/.vmodules/gil_silva/vschema
 
 ```v
 import json2
-import gil_silva.vschema.vschema
+import vschema
 
 // parse the contract — malformed keywords fail loudly, right here
 s := vschema.parse_schema_json('{"type": "integer", "minimum": 0, "maximum": 99}')!
@@ -73,7 +77,7 @@ assert errors.len == 0
 And what happens when it breaks:
 
 ```v
-import gil_silva.vschema.vschema
+import vschema
 
 s := vschema.parse_schema_json('{"type": "integer", "minimum": 0, "maximum": 99}')!
 violations := s.validate_json('"not a number"') or { panic('malformed JSON: ${err.msg()}') }
@@ -88,7 +92,7 @@ Values do not need to come from a file — anything you can express as a
 
 ```v
 import json2
-import gil_silva.vschema.vschema
+import vschema
 
 s := vschema.parse_schema_json('{"type": "integer", "minimum": 0, "maximum": 99}')!
 assert s.is_valid(json2.Any(42))
@@ -157,7 +161,7 @@ A schema with a malformed keyword is a schema error, surfaced at parse time —
 schema bugs should fail loudly, not wait for the first document:
 
 ```v
-import gil_silva.vschema.vschema
+import vschema
 
 _ = vschema.parse_schema_json('{"multipleOf": 0}') or {
 	println('bad schema: ${err.msg()}')
@@ -178,7 +182,7 @@ named parts — including parts that describe themselves:
 
 ```v
 import json2
-import gil_silva.vschema.vschema
+import vschema
 
 // a "node" contract built of nodes — one $defs entry, one $ref long
 node := '{"type": "object", "properties": {"children":
@@ -211,7 +215,7 @@ document:
 
 ```v
 import json2
-import gil_silva.vschema.vschema
+import vschema
 
 struct Tag {
 	name string
