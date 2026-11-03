@@ -20,6 +20,11 @@ jobs:
         with:
           version: d126ca3fd329aa7be68efcc2f61d074f8b5dfd3f
 
+      # property_test.v drives its checks with hypo; the import resolves
+      # from ~/.vmodules at compile time.
+      - name: install hypo (property_test.v's seeded checker)
+        run: v install gil-silva.hypo
+
       - name: fmt and vet
         run: |
           v fmt -c .
