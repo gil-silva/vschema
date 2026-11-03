@@ -115,6 +115,8 @@ Two properties worth knowing before you build on this:
 | ------------------------------------------- | ------------------------------------------- |
 | parse a schema from raw JSON text           | `parse_schema_json(text string) !Schema`    |
 | parse a schema already decoded with json2   | `parse_schema(value json2.Any) !Schema`     |
+| derive a schema from a V struct, parsed     | `schema_of[T]() !Schema`                    |
+| derive a schema from a V struct, as text    | `schema_json[T]() !string`                  |
 | validate a decoded value                    | `(s Schema) validate(value json2.Any) []VError` |
 | validate raw text; bad JSON is an error     | `(s Schema) validate_json(text string) ![]VError` |
 | the boolean shortcut                        | `(s Schema) is_valid(value json2.Any) bool` |
@@ -173,6 +175,54 @@ references (`https://…`, other files) are rejected at parse time — an
 in-document contract is what this crate validates, honest about what it does
 not reach.
 
+## Structs become schemas
+
+MCP servers and typed APIs describe their payloads in V structs anyway — so
+the schema can be written once, as the struct, and derived at compile time.
+`schema_of[T]` derives and parses; `schema_json[T]` hands back the raw
+document:
+
+```v
+import json2
+import gil_silva.vschema.vschema
+
+struct Tag {
+	name string
+	hits ?int
+}
+
+struct Note {
+	text    string
+	tags    []Tag
+	created ?string @[json: 'made_at']
+}
+
+// derivation emits a full draft 2020-12 document: the root delegates to its
+// own $defs entry, each reachable struct owns exactly one entry, structs are
+// always referenced — and `created` sits outside `required` under its new name
+doc := vschema.schema_json[Note]()!
+assert doc.contains('"tags":{"type":"array","items":{"$ref":"#/$defs/Tag"}}')
+assert doc.contains('"made_at":{"type":"string"}')
+assert doc.contains('"required":["text","tags"]')
+
+// validate right away — nothing else to set up
+s := vschema.schema_of[Note]()!
+assert s.is_valid(json2.parse('{"text":"ok","tags":[{"name":"x"}]}', json2.DecoderOptions{})!)
+assert !s.is_valid(json2.parse('{"tags":[{"name":"x"}]}', json2.DecoderOptions{})!)
+```
+
+The mapping skews V-shaped: `int`/`u64`/… become `integer`, `f32`/`f64`
+become `number`, arrays of anything become `"type":"array"` with `items`,
+maps become `"type":"object"` with `additionalProperties`, enums keep their
+integer values under `enum`, and struct-typed positions (fields, items,
+additionalProperties) reference the struct's `$defs` entry — so a `Node`
+containing `[]Node` is expressed with a self-`$ref` that the reference
+machinery above already validates. Attributes complete the picture:
+`@[json: 'x']` renames the property, `@[json: '-']`/`@[skip]` leave the field
+out of the contract, `@[required]` pins an optional field into `required`.
+Anything not JSON-mappable — pointers, sum types, embedded fields, unknown
+scalar types — fails derivation with the field path named, loudly.
+
 ## What works today
 
 | keyword       | note                                                                         |
@@ -193,6 +243,7 @@ not reach.
 | `contains` `min/maxContains` | matching-item counts; `minContains: 0` allows zero matches      |
 | `allOf` `anyOf` `oneOf` `not` | `allOf` reports per branch; disjunctions answer on the keyword |
 | `$ref` `$defs` | fragment pointers (RFC 6901, `~`/`%`-decoded); rows re-point through refs |
+| derivation (comptime) | `schema_of[T]()` — structs to contracts; scalars, arrays, maps, enums, options, `@[json:]`/`@[skip]`; cycles ride `$defs` |
 
 <details>
 <summary><b>Which groups are skipped, and why</b></summary>
@@ -324,9 +375,9 @@ Until it lands, the clone path above is the install.
 - **M4 — references**: shipped — `$ref` fragment pointers, `$defs`, parsed
   through a pointer memo with late binding; conformance 609/0/39 as of this
   release
-- **M5 — the differentiator**: comptime struct→schema derivation, so MCP
-  servers and API crates can generate their `inputSchema`s from annotated V
-  structs instead of hand-writing JSON strings
+- **M5 — the differentiator**: shipped — comptime derivation,
+  `schema_of[T]()` / `schema_json[T]()`; struct closures become `$defs` +
+  `$ref` contracts eaten directly by the validator above
 
 ## License
 
