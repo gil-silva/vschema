@@ -52,6 +52,7 @@ pub mut:
 	max_length     ?i64
 	pattern        ?string
 	properties     ?map[string]&Schema
+	prop_keys      ?[]string
 	required       ?[]string
 	property_names ?&Schema
 	items          ?&Schema
@@ -170,7 +171,14 @@ fn parse_schema_ctx(a json2.Any, mut ctx &ResCtx) !Schema {
 				node.pattern = parse_pattern(v) or { return err }
 			}
 			'properties' {
-				node.properties = parse_properties(v, mut ctx) or { return err }
+				props := parse_properties(v, mut ctx) or { return err }
+				// prop_keys carries the parse-time sorted key order; the
+				// validator walks instance objects in this order without
+				// re-sorting the schema once per object
+				mut sorted := props.keys()
+				sorted.sort()
+				node.properties = props
+				node.prop_keys = sorted
 			}
 			'required' {
 				node.required = parse_required(v) or { return err }
