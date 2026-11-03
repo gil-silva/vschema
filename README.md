@@ -5,8 +5,8 @@
 **JSON Schema validation for V: documents get contracts, violations get answers.**
 
 Targets [draft 2020-12](https://json-schema.org/specification-links#2020-12) ·
-pure V · structured errors · zero C dependencies ·
-measured, documented performance
+measured, documented performance · pure V · structured errors ·
+zero C dependencies
 
 [![draft](https://img.shields.io/badge/draft-2020--12-4a6b9e)](https://json-schema.org/draft/2020-12)
 [![version](https://img.shields.io/badge/version-0.1.0-8a5f4a)](v.mod)
