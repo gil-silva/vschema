@@ -40,6 +40,8 @@ pub fn schema_json[T]() !string {
 		mut seen := []string{}
 		mut order := []string{}
 		mut defs := map[string]string{}
+		// the walk claims one $defs entry per reachable struct; its reply (the
+		// root's ref fragment) is regenerated below as a whole document
 		_ := emit_any($zero(T), mut seen, mut order, mut defs)!
 		root := short_name(typeof[T]().name)
 		mut entries := []string{}

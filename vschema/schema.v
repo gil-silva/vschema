@@ -176,12 +176,12 @@ fn parse_schema_ctx(a json2.Any, mut ctx &ResCtx) !Schema {
 				node.required = parse_required(v) or { return err }
 			}
 			'propertyNames' {
-				pn := parse_schema_value(v, k, mut ctx) or { return err }
-				node.property_names = &pn
+				name_schema := parse_schema_value(v, k, mut ctx) or { return err }
+				node.property_names = &name_schema
 			}
 			'items' {
-				it_s := parse_schema_value(v, k, mut ctx) or { return err }
-				node.items = &it_s
+				item_schema := parse_schema_value(v, k, mut ctx) or { return err }
+				node.items = &item_schema
 			}
 			'minProperties' {
 				node.min_properties = parse_length(v, k) or { return err }
@@ -199,8 +199,8 @@ fn parse_schema_ctx(a json2.Any, mut ctx &ResCtx) !Schema {
 				node.unique_items = parse_bool_keyword(v, k) or { return err }
 			}
 			'contains' {
-				co := parse_schema_value(v, k, mut ctx) or { return err }
-				node.contains = &co
+				sub := parse_schema_value(v, k, mut ctx) or { return err }
+				node.contains = &sub
 			}
 			'minContains' {
 				node.min_contains = parse_length(v, k) or { return err }
@@ -218,8 +218,8 @@ fn parse_schema_ctx(a json2.Any, mut ctx &ResCtx) !Schema {
 				node.one_of = parse_schema_array(v, k, mut ctx) or { return err }
 			}
 			'not' {
-				n := parse_schema_value(v, k, mut ctx) or { return err }
-				node.not = &n
+				negated := parse_schema_value(v, k, mut ctx) or { return err }
+				node.not = &negated
 			}
 			'$ref' {
 				if !(v is string) {
@@ -297,11 +297,11 @@ fn parse_number(v json2.Any, name string) !f64 {
 
 // parse_multiple_of validates the multipleOf value: any positive number.
 fn parse_multiple_of(v json2.Any) !f64 {
-	n := parse_number(v, 'multipleOf') or { return err }
-	if n <= 0.0 {
+	modulus := parse_number(v, 'multipleOf') or { return err }
+	if modulus <= 0.0 {
 		return error('multipleOf: must be strictly greater than 0')
 	}
-	return n
+	return modulus
 }
 
 // parse_length converts a string keyword bound: a non-negative integer, with
@@ -310,11 +310,11 @@ fn parse_length(v json2.Any, name string) !i64 {
 	if !is_num(v) {
 		return error('${name}: must be a non-negative integer')
 	}
-	n := num_value(v)
-	if !is_math_integer(n) || n < 0.0 {
+	bound := num_value(v)
+	if !is_math_integer(bound) || bound < 0.0 {
 		return error('${name}: must be a non-negative integer')
 	}
-	return i64(n)
+	return i64(bound)
 }
 
 // parse_pattern validates that the pattern keyword is a string. Compilation
@@ -348,9 +348,9 @@ fn parse_properties(v json2.Any, mut ctx &ResCtx) !map[string]&Schema {
 		return error('properties: must be an object')
 	}
 	mut out := map[string]&Schema{}
-	for pk, pv in v as map[string]json2.Any {
-		ps := parse_schema_ctx(pv, mut ctx) or { return err }
-		out[pk] = &ps
+	for key, raw in v as map[string]json2.Any {
+		parsed := parse_schema_ctx(raw, mut ctx) or { return err }
+		out[key] = &parsed
 	}
 	return out
 }
@@ -389,8 +389,8 @@ fn parse_schema_array(v json2.Any, name string, mut ctx &ResCtx) ![]&Schema {
 	}
 	mut out := []&Schema{}
 	for item in v as []json2.Any {
-		s := parse_schema_value(item, name, mut ctx) or { return err }
-		out << &s
+		parsed := parse_schema_value(item, name, mut ctx) or { return err }
+		out << &parsed
 	}
 	return out
 }
@@ -406,10 +406,10 @@ fn parse_defs(v json2.Any, mut ctx &ResCtx) !map[string]&Schema {
 		return error('$defs: must be an object')
 	}
 	mut out := map[string]&Schema{}
-	for dk, _ in v as map[string]json2.Any {
-		pend := resolve_pointer(mut ctx, '#/$defs' + pointer_token(dk)) or { return err }
+	for name, _ in v as map[string]json2.Any {
+		pend := resolve_pointer(mut ctx, '#/$defs' + pointer_token(name)) or { return err }
 		bound := pend.target or { continue }
-		out[dk] = &bound
+		out[name] = &bound
 	}
 	return out
 }
@@ -428,30 +428,30 @@ fn resolve_pointer(mut ctx &ResCtx, frag string) !&Pending {
 		return pend
 	}
 	if ctx.in_flight[frag] {
-		pd := &Pending{}
+		pending := &Pending{}
 		mut waiters := ctx.pending[frag] or { []&Pending{} }
-		waiters << pd
+		waiters << pending
 		ctx.pending[frag] = waiters
-		return pd
+		return pending
 	}
 	ctx.in_flight[frag] = true
 	target := pointer_walk(ctx, frag[1..]) or {
 		ctx.in_flight.delete(frag)
 		return err
 	}
-	s := parse_schema_ctx(target, mut ctx) or {
+	parsed := parse_schema_ctx(target, mut ctx) or {
 		ctx.in_flight.delete(frag)
 		return err
 	}
-	pd := &Pending{ target: s }
-	ctx.cache[frag] = pd
+	bound := &Pending{ target: parsed }
+	ctx.cache[frag] = bound
 	// late-bind every reference that arrived while this pointer was parsing
 	for mut waiter in ctx.pending[frag] or { []&Pending{} } {
-		waiter.target = s
+		waiter.target = parsed
 	}
 	ctx.pending.delete(frag)
 	ctx.in_flight.delete(frag)
-	return pd
+	return bound
 }
 
 // pointer_uri_decode decodes RFC 3986 percent-escapes in a fragment pointer:

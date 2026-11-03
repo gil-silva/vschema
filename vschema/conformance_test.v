@@ -6,10 +6,10 @@
 // of vschema has no coverage from this file — it reports the skip loudly and
 // passes. When the clone exists, every group of the covered files is applied:
 // the group schema is parsed and each of its tests' data is validated, and
-// the expected `valid` flag must match. Groups whose schema uses keywords not
-// yet implemented (as of this milestone: everything but the type/const/enum,
-// numeric, string and object/array structure keywords) or whose pattern the
-// V regex engine cannot compile are skipped and counted in the summary.
+// the expected `valid` flag must match. Groups whose schema uses keywords
+// outside the implemented set (`unimplemented_keywords` below) or whose
+// pattern the V regex engine cannot compile are skipped and counted in the
+// summary.
 module vschema
 
 import json2
@@ -106,7 +106,7 @@ fn test_conformance_groups() {
 			g := garr.as_map()
 			raw_schema := g['schema'] or { json2.Null{} }
 			// the skip decision runs before parsing on purpose: groups using
-			// refs this milestone does not implement (remote URLs, $id-based
+			// refs the validator does not implement (remote URLs, $id-based
 			// pointers) fail to parse by design and must be skipped, not paniced
 			if reason := group_skip_reason(g) {
 				skipped_groups++
@@ -167,7 +167,7 @@ fn schema_skip_reason(sm map[string]json2.Any) ?string {
 		}
 		if k == '$ref' {
 			// a reference leaving this document (URL, URN, other file) cannot
-			// be answered — resolution is fragment-pointers only this milestone
+			// be answered — resolution is fragment-pointers only this release
 			if v is string && !((v as string).starts_with('#')) {
 				return 'uses external reference'
 			}

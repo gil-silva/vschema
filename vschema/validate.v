@@ -95,17 +95,17 @@ fn (s SchemaNode) validate_node(input json2.Any, hops int) []VError {
 			}
 		}
 	}
-	if cv := s.const_value {
-		if !deep_equal(input, cv) {
+	if const_val := s.const_value {
+		if !deep_equal(input, const_val) {
 			errs << VError{
 				schema_path: '/const'
 				message:     'value must equal the const value'
 			}
 		}
 	}
-	if ev := s.enum_value {
+	if enum_val := s.enum_value {
 		mut matched := false
-		for candidate in ev {
+		for candidate in enum_val {
 			if deep_equal(input, candidate) {
 				matched = true
 			}
@@ -139,24 +139,24 @@ fn (s SchemaNode) validate_node(input json2.Any, hops int) []VError {
 			}
 		}
 	}
-	if xmax := s.exclusive_max {
+	if cap := s.exclusive_max {
 		if is_num(input) {
 			n := num_value(input)
-			if n >= xmax {
+			if n >= cap {
 				errs << VError{
 					schema_path: '/exclusiveMaximum'
-					message:     'value must be below the exclusive maximum of ${xmax}'
+					message:     'value must be below the exclusive maximum of ${cap}'
 				}
 			}
 		}
 	}
-	if xmin := s.exclusive_min {
+	if floor := s.exclusive_min {
 		if is_num(input) {
 			n := num_value(input)
-			if n <= xmin {
+			if n <= floor {
 				errs << VError{
 					schema_path: '/exclusiveMinimum'
-					message:     'value must be above the exclusive minimum of ${xmin}'
+					message:     'value must be above the exclusive minimum of ${floor}'
 				}
 			}
 		}
@@ -191,8 +191,8 @@ fn (s SchemaNode) validate_node(input json2.Any, hops int) []VError {
 			}
 		}
 		if pat := s.pattern {
-			if perr := pattern_error(pat, text) {
-				errs << perr
+			if row := pattern_error(pat, text) {
+				errs << row
 			}
 		}
 	}
@@ -218,19 +218,19 @@ fn (s SchemaNode) composition_violations(input json2.Any, hops int) []VError {
 	mut errs := []VError{}
 	if branches := s.all_of {
 		for bi, bptr in branches {
-			bd := *bptr
-			for e in bd.validate_bounded(input, hops) {
-				mut be := e
-				be.schema_path = '/allOf${pointer_token(bi.str())}${e.schema_path}'
-				errs << be
+			branch := *bptr
+			for e in branch.validate_bounded(input, hops) {
+				mut row := e
+				row.schema_path = '/allOf${pointer_token(bi.str())}${e.schema_path}'
+				errs << row
 			}
 		}
 	}
 	if branches := s.any_of {
 		mut found := false
 		for bptr in branches {
-			bd := *bptr
-			if bd.validate_bounded(input, hops).len == 0 {
+			branch := *bptr
+			if branch.validate_bounded(input, hops).len == 0 {
 				found = true
 			}
 		}
@@ -244,8 +244,8 @@ fn (s SchemaNode) composition_violations(input json2.Any, hops int) []VError {
 	if branches := s.one_of {
 		mut matches := 0
 		for bptr in branches {
-			bd := *bptr
-			if bd.validate_bounded(input, hops).len == 0 {
+			branch := *bptr
+			if branch.validate_bounded(input, hops).len == 0 {
 				matches++
 			}
 		}
@@ -262,8 +262,8 @@ fn (s SchemaNode) composition_violations(input json2.Any, hops int) []VError {
 		}
 	}
 	if not_ptr := s.not {
-		nd := *not_ptr
-		if nd.validate_bounded(input, hops).len == 0 {
+		negated := *not_ptr
+		if negated.validate_bounded(input, hops).len == 0 {
 			errs << VError{
 				schema_path: '/not'
 				message:     'value must not match the not subschema'
@@ -292,9 +292,9 @@ fn (s SchemaNode) ref_violations(input json2.Any, hops int) []VError {
 	target := bind.target or { return []VError{} }
 	mut errs := []VError{}
 	for e in target.validate_bounded(input, hops - 1) {
-		mut re := e
-		re.schema_path = raw[1..] + e.schema_path
-		errs << re
+		mut row := e
+		row.schema_path = raw[1..] + e.schema_path
+		errs << row
 	}
 	return errs
 }
@@ -316,30 +316,30 @@ fn (s SchemaNode) object_violations(obj map[string]json2.Any, hops int) []VError
 		}
 	}
 	if names_ptr := s.property_names {
-		ns := *names_ptr
+		name_schema := *names_ptr
 		mut keys := obj.keys()
 		keys.sort()
 		for key in keys {
-			for e in ns.validate_bounded(json2.Any(key), hops) {
-				mut ne := e
-				ne.instance_path = pointer_token(key)
-				ne.schema_path = '/propertyNames${e.schema_path}'
-				errs << ne
+			for e in name_schema.validate_bounded(json2.Any(key), hops) {
+				mut row := e
+				row.instance_path = pointer_token(key)
+				row.schema_path = '/propertyNames${e.schema_path}'
+				errs << row
 			}
 		}
 	}
 	if props := s.properties {
 		mut prop_keys := props.keys()
 		prop_keys.sort()
-		for pk in prop_keys {
-			ps_ptr := props[pk] or { continue }
-			ps := *ps_ptr
-			pv := obj[pk] or { continue }
-			for e in ps.validate_bounded(pv, hops) {
-				mut pe := e
-				pe.instance_path = pointer_token(pk) + e.instance_path
-				pe.schema_path = '/properties${pointer_token(pk)}${e.schema_path}'
-				errs << pe
+		for name in prop_keys {
+			sub_ptr := props[name] or { continue }
+			sub := *sub_ptr
+			prop_val := obj[name] or { continue }
+			for e in sub.validate_bounded(prop_val, hops) {
+				mut row := e
+				row.instance_path = pointer_token(name) + e.instance_path
+				row.schema_path = '/properties${pointer_token(name)}${e.schema_path}'
+				errs << row
 			}
 		}
 	}
@@ -368,15 +368,15 @@ fn (s SchemaNode) object_violations(obj map[string]json2.Any, hops int) []VError
 fn (s SchemaNode) array_violations(arr []json2.Any, hops int) []VError {
 	mut errs := []VError{}
 	if items_ptr := s.items {
-		is_s := *items_ptr
+		item_schema := *items_ptr
 		for i, item in arr {
-			for e in is_s.validate_bounded(item, hops) {
-				mut ie := e
-				ie.instance_path = pointer_token(i.str()) + e.instance_path
+			for e in item_schema.validate_bounded(item, hops) {
+				mut row := e
+				row.instance_path = pointer_token(i.str()) + e.instance_path
 				// the same subschema speaks for every index, so the pointer
 				// stays at /items (properties, by contrast, selects per name)
-				ie.schema_path = '/items${e.schema_path}'
-				errs << ie
+				row.schema_path = '/items${e.schema_path}'
+				errs << row
 			}
 		}
 	}
@@ -405,8 +405,8 @@ fn (s SchemaNode) array_violations(arr []json2.Any, hops int) []VError {
 		}
 	}
 	if contains_ptr := s.contains {
-		cs := *contains_ptr
-		errs << s.contains_violations(arr, cs, hops)
+		sub := *contains_ptr
+		errs << s.contains_violations(arr, sub, hops)
 	}
 	return errs
 }
@@ -425,14 +425,14 @@ fn (s SchemaNode) contains_violations(arr []json2.Any, contains_schema Schema, h
 	// minContains lowers the required count when explicitly given (a value of
 	// 0 makes even zero matches valid); absent means the floor of 1.
 	mut floor := 1
-	if mc := s.min_contains {
-		floor = int(mc)
+	if min_count := s.min_contains {
+		floor = int(min_count)
 	}
 	if matches < floor {
-		if mc := s.min_contains {
+		if min_count := s.min_contains {
 			return [VError{
 				schema_path: '/minContains'
-				message:     'only ${matches} array item(s) match the contains schema, fewer than ${mc}'
+				message:     'only ${matches} array item(s) match the contains schema, fewer than ${min_count}'
 			}]
 		}
 		return [VError{
@@ -440,11 +440,11 @@ fn (s SchemaNode) contains_violations(arr []json2.Any, contains_schema Schema, h
 			message:     'no array item matches the contains schema'
 		}]
 	}
-	if xmax := s.max_contains {
-		if matches > int(xmax) {
+	if max_count := s.max_contains {
+		if matches > int(max_count) {
 			return [VError{
 				schema_path: '/maxContains'
-				message:     'more array item(s) match the contains schema (${matches}) than the maximum of ${xmax}'
+				message:     'more array item(s) match the contains schema (${matches}) than the maximum of ${max_count}'
 			}]
 		}
 	}
