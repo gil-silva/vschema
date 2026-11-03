@@ -5,7 +5,8 @@
 **JSON Schema validation for V: documents get contracts, violations get answers.**
 
 Targets [draft 2020-12](https://json-schema.org/specification-links#2020-12) ·
-pure V · structured errors · zero C dependencies
+pure V · structured errors · zero C dependencies ·
+measured, documented performance
 
 [![draft](https://img.shields.io/badge/draft-2020--12-4a6b9e)](https://json-schema.org/draft/2020-12)
 [![version](https://img.shields.io/badge/version-0.1.0-8a5f4a)](v.mod)
@@ -18,14 +19,17 @@ pure V · structured errors · zero C dependencies
 
 ---
 
-## What is this, in two sentences?
+## What is this, in three sentences?
 
 JSON Schema is the standard vocabulary for describing what a JSON document may
 contain — the same contracts that back OpenAPI documents, MCP tool
 `inputSchema`s and validated configuration files. This module takes a schema
 and, for any document, tells you **exactly which rules it violates, where in
 the document and where in the schema** — as structured rows you can render,
-filter or log, not a blunt `valid: false`.
+filter or log, not a blunt `valid: false`. It is built for reuse on request
+paths: parse a schema once per process and validate body after body with it —
+concurrent requests included — with the measured numbers documented in
+[Performance notes](#performance-notes).
 
 ## Install
 
