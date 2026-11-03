@@ -136,9 +136,10 @@ its state while running).
 
 Rough numbers on the dev machine, mean over thousands of calls (μs/op): a flat
 1 KB body walks in ~45 and a 95 KB body of 500 nested objects in ~11,500;
-decoding those same bodies with `json2.parse` costs ~182 and ~46,000 — so the
-walker itself is roughly a quarter of even that-shaped round trip, and
-decoding dominates. The keyword costs that scale with payload: `uniqueItems`
+decoding those same bodies with `json2.parse` costs ~182 and ~46,000 — so
+even on a body that large the walker is roughly a quarter of the round
+trip, and decoding dominates. The keyword costs that scale with payload:
+`uniqueItems`
 deep-compares item pairs (quadratic, with an early exit on the first equal
 pair), `contains` validates every item, and `pattern` compiles once per call
 then reuses the compiled matcher for every matching position (all the keys of

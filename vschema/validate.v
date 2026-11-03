@@ -509,6 +509,15 @@ fn is_multiple_of(n f64, d f64) bool {
 	return frac <= multiple_of_rel_eps * scale
 }
 
+// unsupported_pattern_row is the structured violation for a pattern the V
+// regex engine cannot compile.
+fn unsupported_pattern_row(pattern string) VError {
+	return VError{
+		schema_path: '/pattern'
+		message:     'pattern is not supported by the V regex engine: ${pattern}'
+	}
+}
+
 // pattern_error returns none when the pattern matches. A pattern the V regex
 // engine cannot compile (the draft asks for ECMAScript regexes; V is
 // close-but-partial) becomes a structured violation rather than a silent
@@ -516,27 +525,21 @@ fn is_multiple_of(n f64, d f64) bool {
 // compile and the compile-failure are both memoized in `pc` for the call.
 fn pattern_error(pattern string, text string, mut pc &PatternCache) ?VError {
 	if pc.failed[pattern] {
-		return VError{
-			schema_path: '/pattern'
-			message:     'pattern is not supported by the V regex engine: ${pattern}'
-		}
+		return unsupported_pattern_row(pattern)
 	}
 	if cached := pc.compiled[pattern] {
 		return find_row(cached, text)
 	}
 	re := regex.regex_opt(pattern) or {
 		pc.failed[pattern] = true
-		return VError{
-			schema_path: '/pattern'
-			message:     'pattern is not supported by the V regex engine: ${pattern}'
-		}
+		return unsupported_pattern_row(pattern)
 	}
 	pc.compiled[pattern] = re
 	return find_row(re, text)
 }
 
 // find_row applies a compiled matcher to one instance string. `find` mutates
-// its own working state, so the matcher always runs on a per- invocation
+// its own working state, so the matcher always runs on a per-invocation
 // copy; the cached entry is never handed around.
 fn find_row(re regex.RE, text string) ?VError {
 	mut rc := re

@@ -172,9 +172,9 @@ fn parse_schema_ctx(a json2.Any, mut ctx &ResCtx) !Schema {
 			}
 			'properties' {
 				props := parse_properties(v, mut ctx) or { return err }
-				// prop_keys carries the parse-time sorted key order; the
-				// validator walks instance objects in this order without
-				// re-sorting the schema once per object
+				// prop_keys carries the parse-time sorted key list; the
+				// validator walks instance objects in this order instead
+				// of re-sorting the keys once per object
 				mut sorted := props.keys()
 				sorted.sort()
 				node.properties = props
